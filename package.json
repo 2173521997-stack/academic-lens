@@ -1,0 +1,76 @@
+{
+  "name": "academic-lens",
+  "productName": "Academic Lens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "学术透镜 — 安静、快速、聪明的英文阅读伴侣",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "smoke": "npm run build && cross-env ELECTRON_SMOKE=1 electron .",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.academiclens.app",
+    "productName": "Academic Lens",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.education"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Education"
+    }
+  },
+  "dependencies": {
+    "lucide-react": "^1.31.0",
+    "mammoth": "^1.12.1",
+    "marked": "^18.0.9",
+    "pdfjs-dist": "^6.2.108",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "concurrently": "^10.0.4",
+    "cross-env": "^10.1.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.3",
+    "vite-plugin-electron": "^0.29.1",
+    "wait-on": "^9.1.0"
+  }
+}
