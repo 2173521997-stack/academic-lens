@@ -116,9 +116,6 @@ export function createBrowserBridge(): Bridge {
       return { text, restored: true }
     },
     shortcutSetSelection: async () => true,
-    ocrRecognize: async () => {
-      throw new Error('浏览器模式不支持云端 OCR，请使用桌面版')
-    },
     speak: (text) => {
       try {
         const u = new SpeechSynthesisUtterance(text)

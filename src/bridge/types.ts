@@ -25,19 +25,6 @@ export interface StreamHandlers {
   onError: (message: string) => void
 }
 
-export interface OcrSettings {
-  provider: 'baidu' | 'openai'
-  apiKey: string
-  secretKey?: string
-  baseUrl?: string
-  model?: string
-}
-
-export interface OcrResult {
-  text: string
-  lines: string[]
-}
-
 export interface Bridge {
   appInfo: () => Promise<AppInfo>
   storeGet: <T = unknown>(key: string) => Promise<T | undefined>
@@ -54,7 +41,6 @@ export interface Bridge {
   onSelectionEmpty: (cb: () => void) => void
   selectionGrab: () => Promise<{ text: string; restored: boolean }>
   shortcutSetSelection: (accel: string) => Promise<boolean>
-  ocrRecognize: (base64: string, settings: OcrSettings) => Promise<OcrResult>
   speak: (text: string, rate?: number) => void
   llmStream: (id: string, req: LLMRequest, handlers: StreamHandlers) => void
   llmCancel: (id: string) => void

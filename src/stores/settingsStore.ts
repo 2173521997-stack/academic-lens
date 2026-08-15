@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import type { OcrSettings } from '../bridge/types'
 
 export interface ProviderPreset {
   label: string
@@ -26,8 +25,8 @@ export interface Settings {
   apiKey: string
   model: string
   theme: ThemeMode
-  ocr: OcrSettings
   selectionShortcut: string
+  ocrLang: 'eng' | 'chi_sim' | 'eng+chi_sim'
 }
 
 interface SettingsState {
@@ -35,15 +34,6 @@ interface SettingsState {
   loaded: boolean
   load: () => Promise<void>
   update: (patch: Partial<Settings>) => void
-  updateOcr: (patch: Partial<OcrSettings>) => void
-}
-
-const DEFAULT_OCR: OcrSettings = {
-  provider: 'baidu',
-  apiKey: '',
-  secretKey: '',
-  baseUrl: 'https://api.moonshot.cn/v1',
-  model: 'moonshot-v1-8k-vision-preview'
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -53,8 +43,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     apiKey: '',
     model: PROVIDERS.deepseek.model,
     theme: 'system',
-    ocr: { ...DEFAULT_OCR },
-    selectionShortcut: 'CommandOrControl+Shift+D'
+    selectionShortcut: 'CommandOrControl+Shift+D',
+    ocrLang: 'eng+chi_sim'
   },
   loaded: false,
 
@@ -69,7 +59,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (!merged.model && PROVIDERS[merged.provider]) {
         merged.model = PROVIDERS[merged.provider].model
       }
-      merged.ocr = { ...DEFAULT_OCR, ...(saved.ocr ?? {}) }
       set({ settings: merged })
     }
     set({ loaded: true })
@@ -81,12 +70,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       next.baseUrl = PROVIDERS[patch.provider].baseUrl
       next.model = PROVIDERS[patch.provider].model
     }
-    set({ settings: next })
-    void window.bridge.storeSet('settings', next)
-  },
-
-  updateOcr: (patch) => {
-    const next = { ...get().settings, ocr: { ...get().settings.ocr, ...patch } }
     set({ settings: next })
     void window.bridge.storeSet('settings', next)
   }

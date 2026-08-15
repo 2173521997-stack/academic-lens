@@ -24,7 +24,7 @@ export default function HomeView(): React.JSX.Element {
   const runOcr = useCallback(async (file: Blob, name: string): Promise<void> => {
     setOcrBusy(true)
     try {
-      const preview = await fileToDataUrl(file)
+      const preview = await fileToDataUrl(file, 480)
       const { lines } = await recognizeClipboardImage(file)
       setImgTask({ preview, lines, name, error: null })
     } catch (err) {

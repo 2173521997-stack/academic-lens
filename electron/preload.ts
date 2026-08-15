@@ -53,8 +53,6 @@ const bridge = {
   selectionGrab: () => ipcRenderer.invoke('selection:grab') as Promise<{ text: string; restored: boolean }>,
   shortcutSetSelection: (accel: string) =>
     ipcRenderer.invoke('shortcut:setSelection', accel) as Promise<boolean>,
-  ocrRecognize: (base64: string, settings: unknown) =>
-    ipcRenderer.invoke('ocr:recognize', base64, settings) as Promise<{ text: string; lines: string[] }>,
   speak: (text: string, rate?: number) => ipcRenderer.send('speech:speak', { text, rate }),
   llmStream,
   llmCancel,

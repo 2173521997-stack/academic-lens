@@ -13,7 +13,6 @@ const THEMES: { value: ThemeMode; label: string }[] = [
 export default function SettingsView(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const update = useSettingsStore((s) => s.update)
-  const updateOcr = useSettingsStore((s) => s.updateOcr)
   const isMac = useAppStore((s) => s.isMac)
   const platform = useAppStore((s) => s.platform)
 
@@ -126,80 +125,27 @@ export default function SettingsView(): React.JSX.Element {
           </p>
         </section>
 
-        <section className="card space-y-4 p-5">
+        <section className="card space-y-3 p-5">
           <h2 className="text-[13px] font-semibold text-ink-2">图片识别（OCR）</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-[12px] font-medium text-ink-2">
-              服务商
-              <select
-                className="input mt-1"
-                value={settings.ocr.provider}
-                onChange={(e) => updateOcr({ provider: e.target.value as 'baidu' | 'openai' })}
-              >
-                <option value="baidu">百度 OCR（通用文字识别）</option>
-                <option value="openai">OpenAI 兼容视觉模型</option>
-              </select>
-            </label>
-            {settings.ocr.provider === 'openai' && (
-              <label className="text-[12px] font-medium text-ink-2">
-                视觉模型
-                <input
-                  className="input mt-1"
-                  value={settings.ocr.model}
-                  onChange={(e) => updateOcr({ model: e.target.value })}
-                  placeholder="moonshot-v1-8k-vision-preview"
-                />
-              </label>
-            )}
+          <div className="flex items-center gap-2">
+            <span className="chip">本地引擎</span>
+            <span className="text-[12px] text-ink-2">tesseract.js · 完全离线 · 免费</span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-[12px] font-medium text-ink-2">
-              {settings.ocr.provider === 'baidu' ? 'API Key' : 'API Key'}
-              <input
-                className="input mt-1"
-                type="password"
-                value={settings.ocr.apiKey}
-                onChange={(e) => updateOcr({ apiKey: e.target.value })}
-                placeholder="…"
-                autoComplete="off"
-              />
-            </label>
-            {settings.ocr.provider === 'baidu' ? (
-              <label className="text-[12px] font-medium text-ink-2">
-                Secret Key
-                <input
-                  className="input mt-1"
-                  type="password"
-                  value={settings.ocr.secretKey ?? ''}
-                  onChange={(e) => updateOcr({ secretKey: e.target.value })}
-                  placeholder="…"
-                  autoComplete="off"
-                />
-              </label>
-            ) : (
-              <label className="text-[12px] font-medium text-ink-2">
-                Base URL
-                <input
-                  className="input mt-1"
-                  value={settings.ocr.baseUrl ?? ''}
-                  onChange={(e) => updateOcr({ baseUrl: e.target.value })}
-                  placeholder="https://api.moonshot.cn/v1"
-                />
-              </label>
-            )}
-          </div>
+          <label className="block text-[12px] font-medium text-ink-2">
+            识别语言
+            <select
+              className="input mt-1"
+              value={settings.ocrLang}
+              onChange={(e) => update({ ocrLang: e.target.value as 'eng' | 'chi_sim' | 'eng+chi_sim' })}
+            >
+              <option value="eng+chi_sim">中英混排（默认）</option>
+              <option value="eng">仅英文（更快）</option>
+              <option value="chi_sim">仅中文（更快）</option>
+            </select>
+          </label>
           <p className="text-[11px] leading-relaxed text-ink-3">
             大窗中截图后 <kbd className="rounded bg-surface px-1.5 py-0.5 font-semibold">Ctrl/Cmd+V</kbd> 粘贴即 OCR 翻译。
-            <button
-              className="ml-1 inline-flex items-center gap-0.5 text-accent hover:underline"
-              onClick={() =>
-                void window.bridge.openExternal(
-                  'https://console.bce.baidu.com/ai/#/ai/ocr/overview/index'
-                )
-              }
-            >
-              百度 OCR 控制台 <ExternalLink size={10} />
-            </button>
+            首次识别需加载语言模型（约 2-5 秒），之后常驻秒级识别；空闲 30 秒自动释放内存。
           </p>
         </section>
 

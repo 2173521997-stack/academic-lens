@@ -1,54 +1,92 @@
 import { useWordbookStore } from '../stores/wordbookStore'
 import { loadRecents } from './quickTranslate'
 
-let words: string[] | null = null
-let loading: Promise<string[]> | null = null
+let raw: string | null = null
+let loading: Promise<string> | null = null
+// 稀疏行号索引：每 256 行记录偏移，二分定位时减少扫描
+let lineIndex: Uint32Array | null = null
 
 /** 词表（public/words.txt，dev 与 file:// 下均用相对路径可 fetch） */
 const WORDS_URL = 'words.txt'
 
-async function loadWords(): Promise<string[]> {
-  if (words) return words
+const LINE_STEP = 256
+
+async function loadRaw(): Promise<string> {
+  if (raw !== null) return raw
   if (loading) return loading
   loading = (async () => {
     try {
       const res = await fetch(WORDS_URL)
       const text = await res.text()
-      words = text.split('\n').map((w) => w.trim().toLowerCase()).filter((w) => /^[a-z]{2,45}$/.test(w))
-      return words
+      raw = text
+      // 构建行号索引：每 LINE_STEP 行记录一个字节偏移
+      const count = Math.ceil(text.length / LINE_STEP) + 1
+      const idx = new Uint32Array(count)
+      let line = 0
+      idx[0] = 0
+      for (let i = 0; i < text.length; i++) {
+        if (text.charCodeAt(i) === 10) {
+          line++
+          if (line % LINE_STEP === 0) idx[line / LINE_STEP] = i + 1
+        }
+      }
+      lineIndex = idx
+      return text
     } catch {
-      words = []
-      return words
+      raw = ''
+      return raw
     }
   })()
   return loading
 }
 
+function lineAt(n: number): string {
+  const text = raw ?? ''
+  const idx = lineIndex ?? new Uint32Array(0)
+  const stepIdx = Math.floor(n / LINE_STEP)
+  let start = idx[stepIdx] ?? 0
+  let line = stepIdx * LINE_STEP
+  while (line < n) {
+    const nl = text.indexOf('\n', start)
+    if (nl < 0) return ''
+    start = nl + 1
+    line++
+  }
+  const end = text.indexOf('\n', start)
+  return text.slice(start, end < 0 ? undefined : end)
+}
+
 /**
  * 前缀推荐：输入几个字母推测完整单词。
- * 排序：生词本中的词 > 最近搜索过的词 > 短词优先 > 字母序。
+ * 内存优化：不 split 成 27 万字符串数组，直接在原始文本上二分+逐行扫描。
+ * 排序：生词本中的词 > 最近搜索过的词 > 词典序。
  */
 export async function suggest(prefix: string, limit = 8): Promise<string[]> {
   const p = prefix.trim().toLowerCase()
   if (!/^[a-z]{2,}$/.test(p)) return []
-  const list = await loadWords()
-  if (!list.length) return []
+  await loadRaw()
+  if (!raw) return []
+
+  // 二分定位第一个前缀匹配行
+  let total = 0
+  for (let i = 0; i < raw.length; i++) if (raw.charCodeAt(i) === 10) total++
+  let lo = 0
+  let hi = total + 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    const w = lineAt(mid)
+    if (w < p) lo = mid + 1
+    else hi = mid
+  }
 
   const wordbook = new Set(useWordbookStore.getState().words.map((w) => w.word.toLowerCase()))
   const recent = new Set((await loadRecents()).map((r) => r.src.trim().toLowerCase()))
 
   const hits: string[] = []
-  // 二分定位到第一个前缀匹配位置（词表按字母序）
-  let lo = 0
-  let hi = list.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (list[mid] < p) lo = mid + 1
-    else hi = mid
-  }
-  for (let i = lo; i < list.length && hits.length < 200; i++) {
-    if (!list[i].startsWith(p)) break
-    hits.push(list[i])
+  for (let i = lo; i < total && hits.length < 200; i++) {
+    const w = lineAt(i)
+    if (!w.startsWith(p)) break
+    hits.push(w)
   }
 
   const score = (w: string): number => {

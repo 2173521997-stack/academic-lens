@@ -14,7 +14,6 @@ import { execFile } from 'node:child_process'
 import { streamLLM, type LLMRequest } from './llm'
 import { store } from './store'
 import { grabSelection } from './selection'
-import { recognizeWithRetry, type OcrSettings } from './ocr'
 
 const isMac = process.platform === 'darwin'
 const isWin = process.platform === 'win32'
@@ -253,10 +252,6 @@ function registerIpc(): void {
     } catch {
       return false
     }
-  })
-
-  ipcMain.handle('ocr:recognize', async (_e, base64: string, settings: OcrSettings) => {
-    return recognizeWithRetry(base64, settings)
   })
 
   ipcMain.on('llm:stream', (e, id: string, req: LLMRequest) => {
