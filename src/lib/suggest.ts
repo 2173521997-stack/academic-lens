@@ -3,13 +3,26 @@ import { loadRecents } from './quickTranslate'
 
 let raw: string | null = null
 let loading: Promise<string> | null = null
+let boost: Set<string> | null = null
 // 稀疏行号索引：每 256 行记录偏移，二分定位时减少扫描
 let lineIndex: Uint32Array | null = null
 
 /** 词表（public/words.txt，dev 与 file:// 下均用相对路径可 fetch） */
 const WORDS_URL = 'words.txt'
+const BOOST_URL = 'boost.txt'
 
 const LINE_STEP = 256
+
+async function loadBoost(): Promise<Set<string>> {
+  if (boost) return boost
+  try {
+    const res = await fetch(BOOST_URL)
+    boost = new Set((await res.text()).split('\n').map((w) => w.trim()).filter(Boolean))
+  } catch {
+    boost = new Set()
+  }
+  return boost
+}
 
 async function loadRaw(): Promise<string> {
   if (raw !== null) return raw
@@ -81,9 +94,10 @@ export async function suggest(prefix: string, limit = 8): Promise<string[]> {
 
   const wordbook = new Set(useWordbookStore.getState().words.map((w) => w.word.toLowerCase()))
   const recent = new Set((await loadRecents()).map((r) => r.src.trim().toLowerCase()))
+  const boostWords = await loadBoost()
 
   const hits: string[] = []
-  for (let i = lo; i < total && hits.length < 200; i++) {
+  for (let i = lo; i < total && hits.length < 2000; i++) {
     const w = lineAt(i)
     if (!w.startsWith(p)) break
     hits.push(w)
@@ -91,10 +105,11 @@ export async function suggest(prefix: string, limit = 8): Promise<string[]> {
 
   const score = (w: string): number => {
     if (wordbook.has(w)) return 0
+    if (boostWords.has(w)) return 0.5
     if (recent.has(w)) return 1
     return 2
   }
-  // 个性化（生词本/历史）置顶，其余保持词典字母序（稳定排序）
+  // 个性化（生词本/高频保底词/历史）置顶，其余保持词典字母序（稳定排序）
   const rank = new Map(hits.map((w, i) => [w, i]))
   return hits
     .sort((a, b) => score(a) - score(b) || (rank.get(a) ?? 0) - (rank.get(b) ?? 0))
