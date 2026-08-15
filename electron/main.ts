@@ -151,12 +151,13 @@ function registerIpc(): void {
     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
   })
 
-  ipcMain.handle('file:save', async (e, opts: { defaultPath?: string; data: string }) => {
+  ipcMain.handle('file:save', async (e, opts: { defaultPath?: string; data: string; filters?: { name: string; extensions: string[] }[] }) => {
     const win = BrowserWindow.fromWebContents(e.sender) ?? undefined
     const picked = await dialog.showSaveDialog(win as BrowserWindow, {
       defaultPath: opts.defaultPath,
-      filters: [
+      filters: opts.filters ?? [
         { name: 'Markdown', extensions: ['md'] },
+        { name: '文本', extensions: ['txt'] },
         { name: '所有文件', extensions: ['*'] }
       ]
     })

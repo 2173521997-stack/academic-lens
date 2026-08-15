@@ -4,7 +4,7 @@ import { llmStream } from '../lib/llm'
 import { newId } from '../lib/parse'
 import { useHistoryStore } from './historyStore'
 
-export type DocMode = 'translate' | 'summary' | 'qa'
+export type DocMode = 'translate' | 'cn' | 'summary' | 'qa'
 
 interface FileState {
   doc: DocInfo | null

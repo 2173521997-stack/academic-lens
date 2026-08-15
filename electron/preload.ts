@@ -34,7 +34,7 @@ const bridge = {
   storeGet: <T = unknown>(key: string) => ipcRenderer.invoke('store:get', key) as Promise<T | undefined>,
   storeSet: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
   readFile: (filePath: string) => ipcRenderer.invoke('file:read', filePath) as Promise<Uint8Array>,
-  saveFile: (opts: { defaultPath?: string; data: string }) =>
+  saveFile: (opts: { defaultPath?: string; data: string; filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke('file:save', opts) as Promise<string | null>,
   openFiles: () => ipcRenderer.invoke('dialog:openFiles') as Promise<string[]>,
   windowGetState: () => ipcRenderer.invoke('window:getState') as Promise<{ mode: 'mini' | 'full'; alwaysOnTop: boolean }>,

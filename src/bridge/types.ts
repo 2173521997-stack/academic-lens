@@ -43,7 +43,7 @@ export interface Bridge {
   storeGet: <T = unknown>(key: string) => Promise<T | undefined>
   storeSet: (key: string, value: unknown) => Promise<boolean>
   readFile: (filePath: string) => Promise<Uint8Array>
-  saveFile: (opts: { defaultPath?: string; data: string }) => Promise<string | null>
+  saveFile: (opts: { defaultPath?: string; data: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
   openFiles: () => Promise<string[]>
   windowGetState: () => Promise<{ mode: 'mini' | 'full'; alwaysOnTop: boolean }>
   windowSetMode: (mode: 'mini' | 'full') => void

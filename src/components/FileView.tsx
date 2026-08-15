@@ -7,6 +7,7 @@ import { useChatStore } from '../stores/chatStore'
 import Segmented from './Segmented'
 import { buildExportMd } from '../lib/exportMd'
 import { marked } from 'marked'
+import CnView from './CnView'
 
 export default function FileView(): React.JSX.Element {
   const doc = useFileStore((s) => s.doc)
@@ -58,33 +59,38 @@ export default function FileView(): React.JSX.Element {
         </div>
 
         <div className="flex items-center gap-3">
-          {mode === 'translate' && !translating && untranslated > 0 && (
-            <button className="btn btn-primary" onClick={translateAll}>
-              <Play size={13} /> 翻译全部
-            </button>
+          {mode !== 'cn' && (
+            <>
+              {mode === 'translate' && !translating && untranslated > 0 && (
+                <button className="btn btn-primary" onClick={translateAll}>
+                  <Play size={13} /> 翻译全部
+                </button>
+              )}
+              {mode === 'translate' && translating && (
+                <button className="btn" onClick={stopTranslate}>
+                  <Square size={12} /> 停止
+                </button>
+              )}
+              {mode === 'summary' && summaryState === 'idle' && (
+                <button className="btn btn-primary" onClick={summarize}>
+                  <Sparkles size={13} /> 生成摘要
+                </button>
+              )}
+              {mode === 'summary' && summaryState === 'streaming' && (
+                <button className="btn" onClick={stopSummarize}>
+                  <Square size={12} /> 停止
+                </button>
+              )}
+              <button className="btn" onClick={() => void exportMd()}>
+                {exported ? <Star size={13} className="text-star" /> : <Download size={13} />}
+                {exported ? '已导出' : '导出 MD'}
+              </button>
+            </>
           )}
-          {mode === 'translate' && translating && (
-            <button className="btn" onClick={stopTranslate}>
-              <Square size={12} /> 停止
-            </button>
-          )}
-          {mode === 'summary' && summaryState === 'idle' && (
-            <button className="btn btn-primary" onClick={summarize}>
-              <Sparkles size={13} /> 生成摘要
-            </button>
-          )}
-          {mode === 'summary' && summaryState === 'streaming' && (
-            <button className="btn" onClick={stopSummarize}>
-              <Square size={12} /> 停止
-            </button>
-          )}
-          <button className="btn" onClick={() => void exportMd()}>
-            {exported ? <Star size={13} className="text-star" /> : <Download size={13} />}
-            {exported ? '已导出' : '导出 MD'}
-          </button>
           <Segmented<DocMode>
             items={[
-              { value: 'translate', label: '翻译' },
+              { value: 'translate', label: '双语' },
+              { value: 'cn', label: '中文译文' },
               { value: 'summary', label: '总结' },
               { value: 'qa', label: '问答' }
             ]}
@@ -103,6 +109,7 @@ export default function FileView(): React.JSX.Element {
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         {mode === 'translate' && <BilingualView />}
+        {mode === 'cn' && <CnView segments={segments} />}
         {mode === 'summary' && <SummaryCard summary={summary} state={summaryState} error={error} />}
         {mode === 'qa' && <QAView />}
       </div>

@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { UploadCloud, FolderOpen, ImagePlus, Loader2, AlertTriangle, Wand2, X } from 'lucide-react'
+import { UploadCloud, FolderOpen, ImagePlus, Loader2, AlertTriangle, Wand2, X, FileText, Type, Image } from 'lucide-react'
 import { useFileStore } from '../stores/fileStore'
 import { isSupported } from '../lib/types'
 import { parseAnyFile, makeSegment } from '../lib/parse'
 import { recognizeClipboardImage, fileToDataUrl } from '../lib/ocr'
 import FileView from './FileView'
+import TextTranslateView from './TextTranslateView'
+import ImageZoneView from './ImageZoneView'
+
+type HomeTab = 'doc' | 'text' | 'image'
 
 export default function HomeView(): React.JSX.Element {
   const doc = useFileStore((s) => s.doc)
+  const [tab, setTab] = useState<HomeTab>('doc')
+  const tabRef = useRef<HomeTab>('doc')
   const [imgTask, setImgTask] = useState<ImgTask | null>(null)
   const [ocrBusy, setOcrBusy] = useState(false)
+
+  useEffect(() => {
+    tabRef.current = tab
+  }, [tab])
 
   const runOcr = useCallback(async (file: Blob, name: string): Promise<void> => {
     setOcrBusy(true)
@@ -29,8 +39,25 @@ export default function HomeView(): React.JSX.Element {
     }
   }, [])
 
+  const openDocDialog = useCallback(async (): Promise<void> => {
+    const paths = await window.bridge.openFiles()
+    for (const p of paths) {
+      const name = p.split(/[\\/]/).pop() ?? p
+      if (!isSupported(name)) continue
+      try {
+        const data = await window.bridge.readFile(p)
+        const segs = await parseAnyFile(name, data)
+        useFileStore.getState().setDoc({ name, size: data.byteLength }, segs)
+        return
+      } catch {
+        /* 跳过读取失败的文件 */
+      }
+    }
+  }, [])
+
   useEffect(() => {
     const onPaste = (e: ClipboardEvent): void => {
+      if (tabRef.current !== 'doc' && tabRef.current !== 'image') return
       const items = e.clipboardData?.items
       if (!items) return
       for (const it of Array.from(items)) {
@@ -50,8 +77,67 @@ export default function HomeView(): React.JSX.Element {
   }, [runOcr])
 
   if (doc) return <FileView />
-  if (imgTask) return <ImageTranslateView task={imgTask} busy={ocrBusy} onReset={() => setImgTask(null)} />
-  return <DropZone onImageFile={runOcr} />
+  if (tab === 'text') return <TextTranslateView />
+  if (tab === 'image') {
+    return imgTask ? (
+      <ImageTranslateView task={imgTask} busy={ocrBusy} onReset={() => setImgTask(null)} onBack={() => setTab('doc')} />
+    ) : (
+      <ImageZoneView onImageFile={runOcr} />
+    )
+  }
+  if (tab === 'doc') {
+    return (
+      <div className="flex h-full flex-col overflow-y-auto">
+        <div className="mx-auto grid w-full max-w-4xl grid-cols-3 gap-4 px-8 pt-8">
+          <EntryCard
+            icon={<FileText size={20} />}
+            title="翻译文档"
+            desc="PDF / Word / TXT / MD"
+            active
+            onClick={() => void openDocDialog()}
+          />
+          <EntryCard
+            icon={<Type size={20} />}
+            title="翻译文本"
+            desc="粘贴 / 上传 / 截图提取"
+            active={false}
+            onClick={() => setTab('text')}
+          />
+          <EntryCard
+            icon={<Image size={20} />}
+            title="翻译图片"
+            desc="截图后 Ctrl+V 粘贴"
+            active={false}
+            onClick={() => setTab('image')}
+          />
+        </div>
+        <DropZone
+          onOpenDoc={openDocDialog}
+          onImageFile={runOcr}
+          onGoText={() => setTab('text')}
+          onGoImage={() => setTab('image')}
+        />
+      </div>
+    )
+  }
+  return <></>
+}
+
+function EntryCard(props: { icon: React.ReactNode; title: string; desc: string; active: boolean; onClick: () => void }): React.JSX.Element {
+  return (
+    <button
+      onClick={props.onClick}
+      className={`card card-hover flex items-center gap-3 p-4 text-left ${props.active ? '!border-accent/40 !bg-accent-soft' : ''}`}
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+        {props.icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold">{props.title}</span>
+        <span className="block truncate text-[11px] text-ink-3">{props.desc}</span>
+      </span>
+    </button>
+  )
 }
 
 interface ImgTask {
@@ -61,7 +147,7 @@ interface ImgTask {
   error: string | null
 }
 
-function ImageTranslateView(props: { task: ImgTask; busy: boolean; onReset: () => void }): React.JSX.Element {
+function ImageTranslateView(props: { task: ImgTask; busy: boolean; onReset: () => void; onBack: () => void }): React.JSX.Element {
   const setDoc = useFileStore((s) => s.setDoc)
   const { task } = props
 
@@ -80,9 +166,14 @@ function ImageTranslateView(props: { task: ImgTask; busy: boolean; onReset: () =
             <ImagePlus size={16} className="text-accent" /> 图片翻译
             <span className="chip">{task.name}</span>
           </h2>
-          <button className="btn btn-ghost !p-2" onClick={props.onReset} title="关闭">
-            <X size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={props.onBack}>
+              返回
+            </button>
+            <button className="btn btn-ghost !p-2" onClick={props.onReset} title="关闭">
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         {task.error ? (
@@ -93,7 +184,7 @@ function ImageTranslateView(props: { task: ImgTask; busy: boolean; onReset: () =
             <p className="max-w-sm text-[13px] leading-relaxed text-ink-2">{task.error}</p>
             <div className="flex gap-2">
               <button className="btn" onClick={props.onReset}>关闭</button>
-              <p className="self-center text-[11px] text-ink-3">重新截图后 Ctrl+V 粘贴即可</p>
+              <button className="btn" onClick={props.onBack}>返回图片翻译</button>
             </div>
           </div>
         ) : (
@@ -127,7 +218,7 @@ function ImageTranslateView(props: { task: ImgTask; busy: boolean; onReset: () =
               </div>
             </div>
             <div className="mt-4 flex items-center justify-between">
-              <p className="text-[11px] text-ink-3">逐行对齐 → 双语对照 + 可总结/问答</p>
+              <p className="text-[11px] text-ink-3">逐行对齐 → 双语对照 + 纯中文译文</p>
               <div className="flex gap-2">
                 <button className="btn" onClick={props.onReset}>放弃</button>
                 <button className="btn btn-primary" disabled={!task.lines.length} onClick={startTranslate}>
@@ -142,14 +233,18 @@ function ImageTranslateView(props: { task: ImgTask; busy: boolean; onReset: () =
   )
 }
 
-function DropZone(props: { onImageFile: (file: Blob, name: string) => Promise<void> }): React.JSX.Element {
+function DropZone(props: {
+  onOpenDoc: () => Promise<void>
+  onImageFile: (file: Blob, name: string) => Promise<void>
+  onGoText: () => void
+  onGoImage: () => void
+}): React.JSX.Element {
   const setDoc = useFileStore((s) => s.setDoc)
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [ocrBusy, setOcrBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const imgInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(
     async (name: string, data: Uint8Array): Promise<void> => {
@@ -201,31 +296,8 @@ function DropZone(props: { onImageFile: (file: Blob, name: string) => Promise<vo
     [props]
   )
 
-  const openDialog = useCallback(async (): Promise<void> => {
-    const paths = await window.bridge.openFiles()
-    for (const p of paths) {
-      const name = p.split(/[\\/]/).pop() ?? p
-      if (!isSupported(name)) continue
-      try {
-        const data = await window.bridge.readFile(p)
-        await load(name, data)
-        return
-      } catch {
-        /* 跳过读取失败的文件 */
-      }
-    }
-    if (paths.length) setMsg('没有可用的文档文件')
-  }, [load])
-
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
-      <div className="text-center">
-        <h1 className="text-[22px] font-semibold tracking-tight">把论文交给透镜</h1>
-        <p className="mt-2 text-[13px] text-ink-2">
-          拖入 PDF / Word / TXT，或在任意地方截图后直接 Ctrl+V 粘贴翻译
-        </p>
-      </div>
-
+    <div className="flex flex-1 flex-col items-center justify-center gap-5 p-8">
       <div
         onDragOver={(e) => {
           e.preventDefault()
@@ -243,35 +315,32 @@ function DropZone(props: { onImageFile: (file: Blob, name: string) => Promise<vo
           }
         }}
         onClick={() => inputRef.current?.click()}
-        className={`card flex w-full max-w-xl cursor-pointer flex-col items-center justify-center gap-4 border-2 border-dashed !border-line-strong py-14 transition ${
+        className={`card flex w-full max-w-3xl cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed !border-line-strong py-12 transition ${
           drag ? '!border-accent bg-accent-soft' : ''
         }`}
       >
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
-          <UploadCloud size={26} />
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+          <UploadCloud size={24} />
         </div>
         <div className="text-center">
-          <p className="text-[15px] font-medium">拖放文件到这里</p>
-          <p className="mt-1 text-[12px] text-ink-3">或点击选择 · PDF / DOCX / TXT / MD / 图片</p>
+          <p className="text-[14px] font-medium">拖放文档到这里</p>
+          <p className="mt-0.5 text-[11px] text-ink-3">或点击选择 · PDF / DOCX / TXT / MD · 图片走「翻译图片」</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             className="btn btn-primary"
             onClick={(e) => {
               e.stopPropagation()
-              void openDialog()
+              void props.onOpenDoc()
             }}
           >
-            <FolderOpen size={14} /> 打开文件…
+            <FolderOpen size={13} /> 打开文件…
           </button>
-          <button
-            className="btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              imgInputRef.current?.click()
-            }}
-          >
-            {ocrBusy ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />} 图片翻译
+          <button className="btn" onClick={(e) => { e.stopPropagation(); props.onGoText() }}>
+            <Type size={13} /> 翻译文本
+          </button>
+          <button className="btn" onClick={(e) => { e.stopPropagation(); props.onGoImage() }}>
+            {ocrBusy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />} 翻译图片
           </button>
         </div>
         <input
@@ -281,16 +350,6 @@ function DropZone(props: { onImageFile: (file: Blob, name: string) => Promise<vo
           accept=".pdf,.docx,.txt,.md,.markdown"
           onChange={(e) => {
             if (e.target.files?.length) void handleFiles(e.target.files)
-            e.target.value = ''
-          }}
-        />
-        <input
-          ref={imgInputRef}
-          type="file"
-          hidden
-          accept="image/png,image/jpeg,image/webp,image/bmp"
-          onChange={(e) => {
-            if (e.target.files?.length) void handleImages(e.target.files)
             e.target.value = ''
           }}
         />
