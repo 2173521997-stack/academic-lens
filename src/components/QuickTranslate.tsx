@@ -1,39 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus } from 'lucide-react'
+import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus, BookmarkCheck } from 'lucide-react'
 import { quickTranslate, loadRecents, type QuickMode, type QuickRecent } from '../lib/quickTranslate'
 import { useFileStore } from '../stores/fileStore'
 import { useWindowStore } from '../stores/windowStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { isSupported } from '../lib/types'
 import { parseAnyFile } from '../lib/parse'
+import { suggest } from '../lib/suggest'
+import { parseWordCard, type WordEntry } from '../lib/wordCard'
 import Segmented from './Segmented'
-
-interface WordEntry {
-  word: string
-  phonetic: string
-  pos: string
-  def: string
-  exs: { en: string; zh: string }[]
-}
-
-function parseWordCard(raw: string): WordEntry | null {
-  const entry: WordEntry = { word: '', phonetic: '', pos: '', def: '', exs: [] }
-  for (const line of raw.split('\n')) {
-    const m = line.match(/^(word|phonetic|pos|def|ex1|ex2)\|(.*)$/)
-    if (!m) continue
-    const key = m[1]
-    const val = m[2].trim()
-    if (key === 'ex1' || key === 'ex2') {
-      const parts = val.split('|').map((s) => s.trim())
-      const en = parts[0] ?? ''
-      if (en) entry.exs.push({ en, zh: parts[1] ?? '' })
-    } else if (key === 'word' || key === 'phonetic' || key === 'pos' || key === 'def') {
-      entry[key] = val
-    }
-  }
-  if (!entry.word && !entry.def) return null
-  return entry
-}
 
 export default function QuickTranslate(): React.JSX.Element {
   const [input, setInput] = useState('')
@@ -56,11 +31,35 @@ export default function QuickTranslate(): React.JSX.Element {
   const doneCount = segments.filter((s) => s.translation).length
   const setModeFull = useWindowStore((s) => s.setMode)
   const addWord = useWordbookStore((s) => s.add)
+  const wordbookWords = useWordbookStore((s) => s.words)
+
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [selIdx, setSelIdx] = useState(-1)
 
   useEffect(() => {
     void loadRecents().then(setRecents)
     inputRef.current?.focus()
   }, [])
+
+  // 推荐搜索：纯字母输入时推测完整单词
+  useEffect(() => {
+    if (streamingRef.current) return
+    if (!/^[a-zA-Z]{2,}$/.test(input.trim())) {
+      setSuggestions([])
+      setSelIdx(-1)
+      return
+    }
+    let alive = true
+    void suggest(input.trim()).then((list) => {
+      if (alive) {
+        setSuggestions(list)
+        setSelIdx(-1)
+      }
+    })
+    return () => {
+      alive = false
+    }
+  }, [input])
 
   const run = useCallback(
     (text: string, explicitMode?: QuickMode): void => {
@@ -91,8 +90,25 @@ export default function QuickTranslate(): React.JSX.Element {
     [mode]
   )
 
+  const pickSuggestion = useCallback(
+    (word: string): void => {
+      cancelRef.current?.()
+      cancelRef.current = null
+      streamingRef.current = false
+      setStreaming(false)
+      setInput(word)
+      setMode('word')
+      setSuggestions([])
+      run(word, 'word')
+      inputRef.current?.focus()
+    },
+    [run]
+  )
+
   useEffect(() => {
     if (!input.trim() || streamingRef.current) return
+    // 疑似单词输入（纯字母）交给推荐系统，不自动翻译
+    if (/^[a-zA-Z]{2,}$/.test(input.trim())) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => run(input), 300)
     return () => {
@@ -175,14 +191,50 @@ export default function QuickTranslate(): React.JSX.Element {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
-              window.bridge.windowHide()
+              if (suggestions.length) {
+                setSuggestions([])
+                setSelIdx(-1)
+              } else {
+                window.bridge.windowHide()
+              }
+            } else if (e.key === 'ArrowDown' && suggestions.length) {
+              e.preventDefault()
+              setSelIdx((i) => (i + 1) % suggestions.length)
+            } else if (e.key === 'ArrowUp' && suggestions.length) {
+              e.preventDefault()
+              setSelIdx((i) => (i <= 0 ? suggestions.length - 1 : i - 1))
+            } else if (e.key === 'Tab' && suggestions.length) {
+              e.preventDefault()
+              pickSuggestion(suggestions[selIdx >= 0 ? selIdx : 0])
             } else if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
-              if (streaming) stop()
-              else run(input.trim())
+              if (suggestions.length && selIdx >= 0) {
+                pickSuggestion(suggestions[selIdx])
+              } else if (streaming) {
+                stop()
+              } else {
+                run(input.trim())
+              }
             }
           }}
         />
+        {suggestions.length > 0 && (
+          <div className="card mt-1.5 animate-float-in !rounded-xl p-1 shadow-pop">
+            {suggestions.map((w, i) => (
+              <button
+                key={w}
+                className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[13px] transition ${
+                  i === selIdx ? 'bg-accent-soft text-accent' : 'text-ink-1 hover:bg-accent-soft/60'
+                }`}
+                onMouseEnter={() => setSelIdx(i)}
+                onClick={() => pickSuggestion(w)}
+              >
+                {w}
+                {i === selIdx && <span className="text-[10px] text-ink-3">Enter 查词</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5">
@@ -259,24 +311,55 @@ export default function QuickTranslate(): React.JSX.Element {
         {!streaming && recents.length > 0 && (
           <div className="mt-3">
             <p className="mb-1.5 flex items-center gap-1 text-[10px] font-medium text-ink-3">
-              <History size={10} /> 最近翻译
+              <History size={10} /> 搜索历史（点击回看 · ⭐ 加入生词本）
             </p>
             <div className="space-y-1">
-              {recents.map((r) => (
-                <button
-                  key={r.time}
-                  className="block w-full rounded-lg border border-line bg-card px-2.5 py-1.5 text-left transition hover:bg-accent-soft"
-                  onClick={() => {
-                    setInput(r.src)
-                    setMode(r.mode)
-                    setResult('')
-                    setRecents(recents.filter((x) => x !== r))
-                  }}
-                >
-                  <span className="block truncate text-[11px] text-ink-2">{r.src}</span>
-                  <span className="block truncate text-[11px] text-ink-3">{r.dst}</span>
-                </button>
-              ))}
+              {recents.map((r) => {
+                const word = r.mode === 'word' ? r.src.trim() : /^[A-Za-z][A-Za-z'-]{1,45}$/.test(r.src.trim()) ? r.src.trim() : ''
+                const saved = word && wordbookWords.some((w) => w.word.toLowerCase() === word.toLowerCase())
+                return (
+                  <div
+                    key={r.time}
+                    className="group flex w-full items-stretch overflow-hidden rounded-lg border border-line bg-card transition hover:bg-accent-soft"
+                  >
+                    <button
+                      className="min-w-0 flex-1 px-2.5 py-1.5 text-left"
+                      onClick={() => {
+                        setInput(r.src)
+                        setMode(r.mode)
+                        setResult('')
+                        setRecents(recents.filter((x) => x !== r))
+                      }}
+                    >
+                      <span className="block truncate text-[11px] text-ink-2">{r.src}</span>
+                      <span className="block truncate text-[11px] text-ink-3">{r.dst}</span>
+                    </button>
+                    {word && (
+                      <button
+                        className="flex w-8 shrink-0 items-center justify-center border-l border-line text-ink-3 transition hover:bg-accent hover:text-white"
+                        title={saved ? '已在生词本' : '加入生词本（含释义与例句）'}
+                        onClick={() => {
+                          if (saved) return
+                          if (r.mode === 'word') {
+                            const card = parseWordCard(r.dst)
+                            if (card) {
+                              addWord({
+                                word: card.word || word,
+                                definition: `${card.pos} ${card.def}`.trim(),
+                                context: card.exs.map((x) => `${x.en}（${x.zh}）`).join('；') || undefined
+                              })
+                              return
+                            }
+                          }
+                          addWord({ word, definition: r.dst, context: r.src })
+                        }}
+                      >
+                        {saved ? <BookmarkCheck size={13} className="text-accent" /> : <BookmarkPlus size={13} />}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

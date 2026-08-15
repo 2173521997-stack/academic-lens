@@ -55,6 +55,7 @@
     "pdfjs-dist": "^6.2.108",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "word-list": "^4.1.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

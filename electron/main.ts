@@ -24,6 +24,7 @@ const isSmoke = process.env.ELECTRON_SMOKE === '1'
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
+  process.exit(0)
 }
 
 const MINI_SIZE = { width: 420, height: 560 }
