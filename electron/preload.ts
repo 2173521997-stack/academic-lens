@@ -44,6 +44,15 @@ const bridge = {
   onModeChanged: (cb: (mode: 'mini' | 'full') => void) => {
     ipcRenderer.on('win:mode', (_e, m: 'mini' | 'full') => cb(m))
   },
+  onFullscreen: (cb: (full: boolean) => void) => {
+    ipcRenderer.on('win:fullscreen', (_e, v: boolean) => cb(v))
+  },
+  onOpenFilePath: (cb: (filePath: string) => void) => {
+    ipcRenderer.on('file:open-path', (_e, p: string) => cb(p))
+  },
+  onOpenSettings: (cb: () => void) => {
+    ipcRenderer.on('open:settings', () => cb())
+  },
   onSelectionText: (cb: (text: string) => void) => {
     ipcRenderer.on('selection:text', (_e, t: string) => cb(t))
   },

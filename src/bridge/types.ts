@@ -37,6 +37,9 @@ export interface Bridge {
   windowSetAlwaysOnTop: (flag: boolean) => void
   windowHide: () => void
   onModeChanged: (cb: (mode: 'mini' | 'full') => void) => void
+  onFullscreen: (cb: (full: boolean) => void) => void
+  onOpenFilePath: (cb: (filePath: string) => void) => void
+  onOpenSettings: (cb: () => void) => void
   onSelectionText: (cb: (text: string) => void) => void
   onSelectionEmpty: (cb: () => void) => void
   selectionGrab: () => Promise<{ text: string; restored: boolean }>

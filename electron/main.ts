@@ -5,8 +5,10 @@ import {
   globalShortcut,
   dialog,
   shell,
+  Menu,
   type WebContents,
-  type Rectangle
+  type Rectangle,
+  type MenuItemConstructorOptions
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -47,6 +49,14 @@ let mainWindow: BrowserWindow | null = null
 const abortControllers = new Map<string, AbortController>()
 let boundsTimer: NodeJS.Timeout | null = null
 let accelOldRef = 'CommandOrControl+Shift+D'
+let isQuitting = false
+let pendingOpenFile: string | null = null
+
+function sendToWindow(channel: string, payload?: unknown): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload)
+  }
+}
 
 function collectBounds(): void {
   if (!mainWindow) return
@@ -110,6 +120,16 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   mainWindow.on('maximize', () => mainWindow?.webContents.send('win:maximized', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('win:maximized', false))
+  // macOS/Windows 全屏：透明窗口在全屏时有边缘瑕疵，通知渲染层切换实色背景
+  mainWindow.on('enter-full-screen', () => sendToWindow('win:fullscreen', true))
+  mainWindow.on('leave-full-screen', () => sendToWindow('win:fullscreen', false))
+  // macOS：点击红点关闭 = 隐藏（保留全部状态），Cmd+Q 才真正退出
+  mainWindow.on('close', (e) => {
+    if (isMac && !isQuitting) {
+      e.preventDefault()
+      mainWindow?.hide()
+    }
+  })
   mainWindow.on('move', () => {
     if (boundsTimer) clearTimeout(boundsTimer)
     boundsTimer = setTimeout(collectBounds, 500)
@@ -121,6 +141,12 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  if (pendingOpenFile && mainWindow) {
+    const p = pendingOpenFile
+    pendingOpenFile = null
+    mainWindow.webContents.send('file:open-path', p)
+  }
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
@@ -348,14 +374,120 @@ function registerShortcuts(): void {
   if (!okD) console.error(`[shortcut] 划词快捷键 ${selAccel} 注册失败（可能被占用）`)
 }
 
+function buildMacMenu(): void {
+  const isDev = !!process.env.VITE_DEV_SERVER_URL
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: 'Academic Lens',
+      submenu: [
+        { role: 'about', label: '关于 Academic Lens' },
+        { type: 'separator' },
+        { label: '偏好设置…', accelerator: 'Cmd+,', click: () => sendToWindow('open:settings') },
+        { type: 'separator' },
+        { role: 'services', label: '服务' },
+        { type: 'separator' },
+        { role: 'hide', label: '隐藏 Academic Lens' },
+        { role: 'hideOthers', label: '隐藏其他' },
+        { role: 'unhide', label: '全部显示' },
+        { type: 'separator' },
+        { role: 'quit', label: '退出 Academic Lens' }
+      ]
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { role: 'undo', label: '撤销' },
+        { role: 'redo', label: '重做' },
+        { type: 'separator' },
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { role: 'selectAll', label: '全选' }
+      ]
+    },
+    {
+      label: '视图',
+      submenu: [
+        ...(isDev
+          ? ([
+              { role: 'reload' as const, label: '重新加载' },
+              { role: 'toggleDevTools' as const, label: '开发者工具' },
+              { type: 'separator' as const }
+            ])
+          : []),
+        { role: 'togglefullscreen', label: '进入/退出全屏' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: '实际大小' },
+        { role: 'zoomIn', label: '放大' },
+        { role: 'zoomOut', label: '缩小' }
+      ]
+    },
+    {
+      label: '窗口',
+      submenu: [
+        { role: 'minimize', label: '最小化' },
+        { role: 'zoom', label: '缩放' },
+        { role: 'close', label: '关闭窗口' },
+        { type: 'separator' },
+        {
+          label: '切换小窗 / 大窗',
+          accelerator: 'Cmd+Shift+M',
+          click: () => {
+            if (!mainWindow) return
+            applyMode(getState().mode === 'mini' ? 'full' : 'mini')
+            mainWindow.show()
+            mainWindow.focus()
+          }
+        },
+        { type: 'separator' },
+        { role: 'front', label: '前置全部窗口' }
+      ]
+    }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 app.whenReady().then(() => {
   registerIpc()
   registerShortcuts()
+  if (isMac) {
+    buildMacMenu()
+    app.setAboutPanelOptions({
+      applicationName: 'Academic Lens',
+      applicationVersion: app.getVersion(),
+      version: '学术透镜 · 英文阅读翻译伴侣',
+      copyright: 'Copyright © 2026 Academic Lens'
+    })
+  }
   createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // macOS：Dock 点击时若有窗口则显示，否则重建
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    } else {
+      createWindow()
+    }
   })
+})
+
+// macOS：文件拖入 Dock 图标 / Finder 打开方式 → 直接打开翻译（须在 ready 前注册）
+app.on('open-file', (e, filePath) => {
+  e.preventDefault()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('file:open-path', filePath)
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  } else {
+    pendingOpenFile = filePath
+  }
+})
+
+app.on('before-quit', () => {
+  isQuitting = true
 })
 
 // 再次启动时聚焦已有窗口（mac 上 Dock 点击）

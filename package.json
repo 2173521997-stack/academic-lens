@@ -39,7 +39,8 @@
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.education"
+      "category": "public.app-category.education",
+      "identity": null
     },
     "linux": {
       "target": [

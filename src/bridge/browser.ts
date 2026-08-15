@@ -109,6 +109,9 @@ export function createBrowserBridge(): Bridge {
     windowSetAlwaysOnTop: () => undefined,
     windowHide: () => undefined,
     onModeChanged: () => undefined,
+    onFullscreen: () => undefined,
+    onOpenFilePath: () => undefined,
+    onOpenSettings: () => undefined,
     onSelectionText: () => undefined,
     onSelectionEmpty: () => undefined,
     selectionGrab: async () => {
