@@ -20,6 +20,12 @@ const isMac = process.platform === 'darwin'
 const isWin = process.platform === 'win32'
 const isSmoke = process.env.ELECTRON_SMOKE === '1'
 
+// 单实例锁：避免多开导致全局快捷键互相抢占
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+}
+
 const MINI_SIZE = { width: 420, height: 560 }
 const FULL_SIZE = { width: 1280, height: 800 }
 
@@ -40,6 +46,7 @@ function getState(): WindowState {
 let mainWindow: BrowserWindow | null = null
 const abortControllers = new Map<string, AbortController>()
 let boundsTimer: NodeJS.Timeout | null = null
+let accelOldRef = 'CommandOrControl+Shift+D'
 
 function collectBounds(): void {
   if (!mainWindow) return
@@ -223,6 +230,30 @@ function registerIpc(): void {
     return result
   })
 
+  // 划词快捷键可配置：注销旧键 → 注册新键，返回是否成功
+  ipcMain.handle('shortcut:setSelection', (_e, accel: string) => {
+    try {
+      globalShortcut.unregister(accelOldRef)
+      globalShortcut.unregister(accel)
+      accelOldRef = accel
+      const ok = globalShortcut.register(accel, () => {
+        if (!mainWindow) return
+        const win = mainWindow
+        void grabSelection().then((result) => {
+          const text = result.text
+          if (getState().mode === 'full') applyMode('mini')
+          win.show()
+          win.focus()
+          win.webContents.send(text ? 'selection:text' : 'selection:empty', text ?? undefined)
+        })
+      })
+      if (ok) store.set('settings', { ...store.get('settings', {}), selectionShortcut: accel })
+      return ok
+    } catch {
+      return false
+    }
+  })
+
   ipcMain.handle('ocr:recognize', async (_e, base64: string, settings: OcrSettings) => {
     return recognizeWithRetry(base64, settings)
   })
@@ -278,7 +309,11 @@ function registerIpc(): void {
 }
 
 function registerShortcuts(): void {
-  globalShortcut.register('CommandOrControl+Shift+T', () => {
+  const st = store.get<{ settings?: { selectionShortcut?: string } }>('settings', {})
+  const selAccel = st.settings?.selectionShortcut || 'CommandOrControl+Shift+D'
+  accelOldRef = selAccel
+
+  const okT = globalShortcut.register('CommandOrControl+Shift+T', () => {
     if (!mainWindow) return
     if (!mainWindow.isVisible()) {
       mainWindow.show()
@@ -291,28 +326,30 @@ function registerShortcuts(): void {
       mainWindow.focus()
     }
   })
+  if (!okT) console.error('[shortcut] CmdOrCtrl+Shift+T 注册失败（可能被占用）')
 
   // 任意时刻切换 小窗 / 大窗
-  globalShortcut.register('CommandOrControl+Shift+M', () => {
+  const okM = globalShortcut.register('CommandOrControl+Shift+M', () => {
     if (!mainWindow) return
     applyMode(getState().mode === 'mini' ? 'full' : 'mini')
     mainWindow.show()
     mainWindow.focus()
   })
+  if (!okM) console.error('[shortcut] CmdOrCtrl+Shift+M 注册失败（可能被占用）')
 
   // 全局划词：不抢焦点取前台选中文本 → 唤起小窗翻译
-  globalShortcut.register('CommandOrControl+Shift+D', () => {
+  const okD = globalShortcut.register(selAccel, () => {
     if (!mainWindow) return
     const win = mainWindow
     void grabSelection().then((result) => {
       const text = result.text
-      if (!text) return
       if (getState().mode === 'full') applyMode('mini')
       win.show()
       win.focus()
-      win.webContents.send('selection:text', text)
+      win.webContents.send(text ? 'selection:text' : 'selection:empty', text ?? undefined)
     })
   })
+  if (!okD) console.error(`[shortcut] 划词快捷键 ${selAccel} 注册失败（可能被占用）`)
 }
 
 app.whenReady().then(() => {
@@ -323,6 +360,14 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+// 再次启动时聚焦已有窗口（mac 上 Dock 点击）
+app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
 })
 
 app.on('will-quit', () => {

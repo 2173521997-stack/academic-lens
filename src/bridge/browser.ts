@@ -110,10 +110,12 @@ export function createBrowserBridge(): Bridge {
     windowHide: () => undefined,
     onModeChanged: () => undefined,
     onSelectionText: () => undefined,
+    onSelectionEmpty: () => undefined,
     selectionGrab: async () => {
       const text = window.getSelection()?.toString().trim() ?? ''
       return { text, restored: true }
     },
+    shortcutSetSelection: async () => true,
     ocrRecognize: async () => {
       throw new Error('浏览器模式不支持云端 OCR，请使用桌面版')
     },

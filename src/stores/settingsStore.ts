@@ -27,6 +27,7 @@ export interface Settings {
   model: string
   theme: ThemeMode
   ocr: OcrSettings
+  selectionShortcut: string
 }
 
 interface SettingsState {
@@ -52,7 +53,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     apiKey: '',
     model: PROVIDERS.deepseek.model,
     theme: 'system',
-    ocr: { ...DEFAULT_OCR }
+    ocr: { ...DEFAULT_OCR },
+    selectionShortcut: 'CommandOrControl+Shift+D'
   },
   loaded: false,
 

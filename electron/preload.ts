@@ -47,7 +47,12 @@ const bridge = {
   onSelectionText: (cb: (text: string) => void) => {
     ipcRenderer.on('selection:text', (_e, t: string) => cb(t))
   },
+  onSelectionEmpty: (cb: () => void) => {
+    ipcRenderer.on('selection:empty', () => cb())
+  },
   selectionGrab: () => ipcRenderer.invoke('selection:grab') as Promise<{ text: string; restored: boolean }>,
+  shortcutSetSelection: (accel: string) =>
+    ipcRenderer.invoke('shortcut:setSelection', accel) as Promise<boolean>,
   ocrRecognize: (base64: string, settings: unknown) =>
     ipcRenderer.invoke('ocr:recognize', base64, settings) as Promise<{ text: string; lines: string[] }>,
   speak: (text: string, rate?: number) => ipcRenderer.send('speech:speak', { text, rate }),

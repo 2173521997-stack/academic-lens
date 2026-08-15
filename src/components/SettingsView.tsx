@@ -20,6 +20,7 @@ export default function SettingsView(): React.JSX.Element {
   const [showKey, setShowKey] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [shortcutMsg, setShortcutMsg] = useState<string | null>(null)
 
   const shortcut = isMac ? '⌘⇧T' : 'Ctrl+Shift+T'
 
@@ -233,10 +234,24 @@ export default function SettingsView(): React.JSX.Element {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[13px]">划词翻译（任意 App 选中文字）</span>
-            <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
-              {isMac ? '⌘⇧D' : 'Ctrl+Shift+D'}
-            </kbd>
+            <input
+              className="input !w-56 !py-1.5 text-center text-[12px]"
+              value={settings.selectionShortcut}
+              placeholder="如 Ctrl+Shift+D / Cmd+Shift+D"
+              onChange={(e) => {
+                const raw = e.target.value.trim().replace(/\s+/g, '')
+                const accel = raw
+                  .replace(/Ctrl\+?|Control\+?/gi, 'CommandOrControl+')
+                  .replace(/Cmd\+?/gi, 'CommandOrControl+')
+                  .replace(/Command\+?/gi, 'CommandOrControl+')
+                void window.bridge.shortcutSetSelection(accel || 'CommandOrControl+Shift+D').then((ok) => {
+                  setShortcutMsg(ok ? '已生效' : '该组合键不可用或被占用，请换一个')
+                  if (ok) update({ selectionShortcut: accel || 'CommandOrControl+Shift+D' })
+                })
+              }}
+            />
           </div>
+          {shortcutMsg && <p className="text-[11px] text-ok">{shortcutMsg}</p>}
           <p className="text-[11px] leading-relaxed text-ink-3">
             划词：在 Word / 浏览器 / PDF 中选中单词或句子，按 {isMac ? '⌘⇧D' : 'Ctrl+Shift+D'}，
             小窗自动弹出——单词显示音标释义与例句，整句自动翻译。

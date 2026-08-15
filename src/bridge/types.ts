@@ -51,7 +51,9 @@ export interface Bridge {
   windowHide: () => void
   onModeChanged: (cb: (mode: 'mini' | 'full') => void) => void
   onSelectionText: (cb: (text: string) => void) => void
+  onSelectionEmpty: (cb: () => void) => void
   selectionGrab: () => Promise<{ text: string; restored: boolean }>
+  shortcutSetSelection: (accel: string) => Promise<boolean>
   ocrRecognize: (base64: string, settings: OcrSettings) => Promise<OcrResult>
   speak: (text: string, rate?: number) => void
   llmStream: (id: string, req: LLMRequest, handlers: StreamHandlers) => void

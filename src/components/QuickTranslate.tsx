@@ -110,6 +110,9 @@ export default function QuickTranslate(): React.JSX.Element {
       setMode(m)
       run(t, m)
     })
+    window.bridge.onSelectionEmpty(() => {
+      setError('未检测到选中文字：请先在目标应用中选中单词/句子，再按 Ctrl/Cmd+Shift+D' + (navigator.platform.includes('Mac') ? '（macOS 需在「系统设置→隐私与安全性→辅助功能」授权）' : ''))
+    })
   }, [run])
 
   const stop = (): void => {
