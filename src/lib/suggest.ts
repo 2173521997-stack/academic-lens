@@ -6,6 +6,10 @@ let loading: Promise<string> | null = null
 let boost: Set<string> | null = null
 // 稀疏行号索引：每 256 行记录偏移，二分定位时减少扫描
 let lineIndex: Uint32Array | null = null
+let lineCount = 0
+// 生词本/最近搜索缓存：引用变化时才重建，避免每击键一次 Set 构建 + IPC
+let wordbookCache: { ref: readonly { word: string }[]; set: Set<string> } | null = null
+let recentsCache: Set<string> | null = null
 
 /** 词表（public/words.txt，dev 与 file:// 下均用相对路径可 fetch） */
 const WORDS_URL = 'words.txt'
@@ -44,6 +48,7 @@ async function loadRaw(): Promise<string> {
         }
       }
       lineIndex = idx
+      lineCount = line
       return text
     } catch {
       raw = ''
@@ -81,8 +86,7 @@ export async function suggest(prefix: string, limit = 8): Promise<string[]> {
   if (!raw) return []
 
   // 二分定位第一个前缀匹配行
-  let total = 0
-  for (let i = 0; i < raw.length; i++) if (raw.charCodeAt(i) === 10) total++
+  const total = lineCount
   let lo = 0
   let hi = total + 1
   while (lo < hi) {
@@ -92,8 +96,15 @@ export async function suggest(prefix: string, limit = 8): Promise<string[]> {
     else hi = mid
   }
 
-  const wordbook = new Set(useWordbookStore.getState().words.map((w) => w.word.toLowerCase()))
-  const recent = new Set((await loadRecents()).map((r) => r.src.trim().toLowerCase()))
+  const words = useWordbookStore.getState().words
+  if (!wordbookCache || wordbookCache.ref !== words) {
+    wordbookCache = { ref: words, set: new Set(words.map((w) => w.word.toLowerCase())) }
+  }
+  if (!recentsCache) {
+    recentsCache = new Set((await loadRecents()).map((r) => r.src.trim().toLowerCase()))
+  }
+  const wordbook = wordbookCache.set
+  const recent = recentsCache
   const boostWords = await loadBoost()
 
   const hits: string[] = []

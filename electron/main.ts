@@ -6,6 +6,8 @@ import {
   dialog,
   shell,
   Menu,
+  clipboard,
+  systemPreferences,
   type WebContents,
   type Rectangle,
   type MenuItemConstructorOptions
@@ -13,9 +15,13 @@ import {
 import path from 'node:path'
 import fs from 'node:fs'
 import { execFile } from 'node:child_process'
-import { streamLLM, type LLMRequest } from './llm'
+import { streamLLM, llmComplete, type LLMRequest } from './llm'
 import { store } from './store'
 import { grabSelection } from './selection'
+import { fileURLToPath } from 'node:url'
+
+// vite-plugin-electron 在 "type": "module" 下输出 ESM，__dirname 不存在，需自行构造
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const isMac = process.platform === 'darwin'
 const isWin = process.platform === 'win32'
@@ -48,9 +54,13 @@ function getState(): WindowState {
 let mainWindow: BrowserWindow | null = null
 const abortControllers = new Map<string, AbortController>()
 let boundsTimer: NodeJS.Timeout | null = null
-let accelOldRef = 'CommandOrControl+Shift+D'
 let isQuitting = false
 let pendingOpenFile: string | null = null
+const shortcutStatus: Record<'toggle' | 'mode' | 'selection', boolean> = {
+  toggle: false,
+  mode: false,
+  selection: false
+}
 
 function sendToWindow(channel: string, payload?: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -83,7 +93,6 @@ function applyMode(mode: 'mini' | 'full'): void {
   mainWindow.setAlwaysOnTop(st.alwaysOnTop && mode === 'mini', 'floating')
   mainWindow.setSkipTaskbar(mode === 'mini')
   mainWindow.setResizable(true)
-  if (isMac) mainWindow.setWindowButtonVisibility(mode === 'full')
 
   collectBounds()
   mainWindow.webContents.send('win:mode', mode)
@@ -100,22 +109,24 @@ function createWindow(): void {
     minHeight: 420,
     show: false,
     title: 'Academic Lens',
-    titleBarStyle: 'hidden',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     transparent: true,
+    hasShadow: true,
+    roundedCorners: true,
+    backgroundColor: '#00000000',
     ...(isMac
-      ? { vibrancy: 'sidebar' as const, trafficLightPosition: { x: 14, y: 16 } }
+      ? { vibrancy: 'sidebar' as const, trafficLightPosition: { x: 16, y: 16 } }
       : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
 
   mainWindow.setAlwaysOnTop(st.alwaysOnTop && isMini, 'floating')
   mainWindow.setSkipTaskbar(isMini)
-  if (isMac) mainWindow.setWindowButtonVisibility(!isMini)
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   mainWindow.on('maximize', () => mainWindow?.webContents.send('win:maximized', true))
@@ -142,10 +153,15 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  if (pendingOpenFile && mainWindow) {
+  // 挂起的 Dock 打开文件：必须等页面加载完成后发送，否则渲染进程尚未监听会丢失
+  if (pendingOpenFile) {
     const p = pendingOpenFile
     pendingOpenFile = null
-    mainWindow.webContents.send('file:open-path', p)
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('file:open-path', p)
+      }
+    })
   }
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -251,33 +267,28 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('selection:grab', async () => {
-    const result = await grabSelection()
-    return result
+  // 查询快捷键注册状态，供设置页实时展示
+  ipcMain.handle('shortcut:getStatus', () => ({
+    ...shortcutStatus
+  }))
+
+  // 快捷键被其他 App 占用后手动重试注册
+  ipcMain.handle('shortcut:retry', () => {
+    globalShortcut.unregisterAll()
+    registerShortcuts()
+    sendToWindow('shortcut:status', { ...shortcutStatus })
+    return { ...shortcutStatus }
   })
 
-  // 划词快捷键可配置：注销旧键 → 注册新键，返回是否成功
-  ipcMain.handle('shortcut:setSelection', (_e, accel: string) => {
-    try {
-      globalShortcut.unregister(accelOldRef)
-      globalShortcut.unregister(accel)
-      accelOldRef = accel
-      const ok = globalShortcut.register(accel, () => {
-        if (!mainWindow) return
-        const win = mainWindow
-        void grabSelection().then((result) => {
-          const text = result.text
-          if (getState().mode === 'full') applyMode('mini')
-          win.show()
-          win.focus()
-          win.webContents.send(text ? 'selection:text' : 'selection:empty', text ?? undefined)
-        })
-      })
-      if (ok) store.set('settings', { ...store.get('settings', {}), selectionShortcut: accel })
-      return ok
-    } catch {
-      return false
-    }
+  // macOS 辅助功能（自动复制取词）授权状态
+  ipcMain.handle('system:accessibility', () => ({
+    trusted: isMac ? systemPreferences.isTrustedAccessibilityClient(false) : true
+  }))
+  ipcMain.handle('system:openAccessibility', () => {
+    if (!isMac) return false
+    return shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+    )
   })
 
   ipcMain.on('llm:stream', (e, id: string, req: LLMRequest) => {
@@ -320,6 +331,36 @@ function registerIpc(): void {
     abortControllers.delete(id)
   })
 
+  // 非流式请求（批量翻译 JSON 模式）
+  ipcMain.on('llm:complete', (e, id: string, req: LLMRequest) => {
+    const wc: WebContents = e.sender
+    const ctrl = new AbortController()
+    abortControllers.set(id, ctrl)
+
+    const apiKey = req.apiKey || process.env.DEEPSEEK_API_KEY || ''
+    if (!apiKey) {
+      wc.send('llm:complete-error', { id, message: '未配置 API Key，请在设置中填写' })
+      abortControllers.delete(id)
+      return
+    }
+
+    void (async () => {
+      try {
+        const res = await llmComplete({ ...req, apiKey }, ctrl.signal)
+        wc.send('llm:complete-done', { id, content: res.full, usage: res.usage })
+      } catch (err) {
+        if (!ctrl.signal.aborted) {
+          wc.send('llm:complete-error', {
+            id,
+            message: err instanceof Error ? err.message : String(err)
+          })
+        }
+      } finally {
+        abortControllers.delete(id)
+      }
+    })()
+  })
+
   ipcMain.on('win:minimize', () => mainWindow?.minimize())
   ipcMain.on('win:toggleMaximize', () => {
     if (!mainWindow) return
@@ -328,26 +369,27 @@ function registerIpc(): void {
   ipcMain.on('win:close', () => mainWindow?.close())
   ipcMain.handle('win:isMaximized', () => mainWindow?.isMaximized() ?? false)
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
+
+  // 复制到系统剪贴板：渲染进程的 navigator.clipboard 在后台/无焦点时不可靠
+  ipcMain.on('clipboard:write', (_e, text: string) => {
+    if (typeof text === 'string' && text) clipboard.writeText(text)
+  })
 }
 
 function registerShortcuts(): void {
-  const st = store.get<{ settings?: { selectionShortcut?: string } }>('settings', {})
-  const selAccel = st.settings?.selectionShortcut || 'CommandOrControl+Shift+D'
-  accelOldRef = selAccel
-
+  // 唤起 / 隐藏小窗：唤起时同步聚焦输入框并切到单词界面，复制内容后 Cmd/Ctrl+V 粘贴即查词
   const okT = globalShortcut.register('CommandOrControl+Shift+T', () => {
     if (!mainWindow) return
-    if (!mainWindow.isVisible()) {
+    if (!mainWindow.isVisible() || getState().mode === 'full') {
+      if (getState().mode === 'full') applyMode('mini')
       mainWindow.show()
       mainWindow.focus()
+      mainWindow.webContents.send('mini:focus-input')
       return
     }
-    if (getState().mode === 'mini') {
-      mainWindow.hide()
-    } else {
-      mainWindow.focus()
-    }
+    mainWindow.hide()
   })
+  shortcutStatus.toggle = okT
   if (!okT) console.error('[shortcut] CmdOrCtrl+Shift+T 注册失败（可能被占用）')
 
   // 任意时刻切换 小窗 / 大窗
@@ -357,21 +399,25 @@ function registerShortcuts(): void {
     mainWindow.show()
     mainWindow.focus()
   })
+  shortcutStatus.mode = okM
   if (!okM) console.error('[shortcut] CmdOrCtrl+Shift+M 注册失败（可能被占用）')
 
-  // 全局划词：不抢焦点取前台选中文本 → 唤起小窗翻译
-  const okD = globalShortcut.register(selAccel, () => {
+  // 一键翻译：Cmd+X = 复制选中 → 唤起小窗 → 自动填入并翻译
+  // 注意顺序：必须先取词再唤起——若先 show/focus 小窗，模拟 Cmd+C 会复制小窗自己而非前台 App
+  // 需要 macOS「辅助功能」授权（模拟 Cmd+C 取词）
+  const okX = globalShortcut.register('CommandOrControl+X', () => {
     if (!mainWindow) return
-    const win = mainWindow
-    void grabSelection().then((result) => {
-      const text = result.text
+    void grabSelection().then((r) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
       if (getState().mode === 'full') applyMode('mini')
-      win.show()
-      win.focus()
-      win.webContents.send(text ? 'selection:text' : 'selection:empty', text ?? undefined)
+      mainWindow.show()
+      mainWindow.focus()
+      if (r.text) mainWindow.webContents.send('selection:text', r.text)
+      else mainWindow.webContents.send('selection:empty', r.error)
     })
   })
-  if (!okD) console.error(`[shortcut] 划词快捷键 ${selAccel} 注册失败（可能被占用）`)
+  shortcutStatus.selection = okX
+  if (!okX) console.error('[shortcut] CmdOrCtrl+X 注册失败（可能被占用）')
 }
 
 function buildMacMenu(): void {
@@ -450,6 +496,7 @@ function buildMacMenu(): void {
 app.whenReady().then(() => {
   registerIpc()
   registerShortcuts()
+  sendToWindow('shortcut:status', { ...shortcutStatus })
   if (isMac) {
     buildMacMenu()
     app.setAboutPanelOptions({
@@ -488,6 +535,7 @@ app.on('open-file', (e, filePath) => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  store.flush()
 })
 
 // 再次启动时聚焦已有窗口（mac 上 Dock 点击）

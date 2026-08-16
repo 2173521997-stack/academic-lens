@@ -53,54 +53,49 @@ function scheduleRelease(): void {
   }, 30000)
 }
 
-/** 图片缩放：最长边限长，降低内存与识别耗时 */
-async function scaleImage(file: Blob, maxSide = 2000): Promise<Blob> {
+/** 解码图片（共用） */
+async function decodeImage(file: Blob): Promise<HTMLImageElement> {
   const url = URL.createObjectURL(file)
   try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image()
       el.onload = () => resolve(el)
       el.onerror = () => reject(new Error('图片解码失败'))
       el.src = url
     })
-    const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
-    const w = Math.max(1, Math.round(img.width * scale))
-    const h = Math.max(1, Math.round(img.height * scale))
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return file
-    ctx.drawImage(img, 0, 0, w, h)
-    return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/png'))
   } finally {
     URL.revokeObjectURL(url)
   }
 }
 
+/** 等比缩放画布（共用）；返回 null 表示无需缩放/无 2d context */
+function scaledCanvas(img: HTMLImageElement, maxSide: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+  const w = Math.max(1, Math.round(img.width * scale))
+  const h = Math.max(1, Math.round(img.height * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.drawImage(img, 0, 0, w, h)
+  return { canvas, ctx }
+}
+
+/** 图片缩放：最长边限长，降低内存与识别耗时（JPEG 输出，比 PNG 小且编码快） */
+async function scaleImage(file: Blob, maxSide = 2000): Promise<Blob> {
+  const img = await decodeImage(file)
+  const sc = scaledCanvas(img, maxSide)
+  if (!sc) return file
+  return await new Promise<Blob>((resolve) => sc.canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.85))
+}
+
 /** 压缩为缩略图 dataURL（最长边 maxSide），降低内存占用 */
 export async function fileToDataUrl(file: Blob, maxSide = 480): Promise<string> {
-  const url = URL.createObjectURL(file)
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image()
-      el.onload = () => resolve(el)
-      el.onerror = () => reject(new Error('图片解码失败'))
-      el.src = url
-    })
-    const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
-    const w = Math.max(1, Math.round(img.width * scale))
-    const h = Math.max(1, Math.round(img.height * scale))
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return url
-    ctx.drawImage(img, 0, 0, w, h)
-    return canvas.toDataURL('image/jpeg', 0.8)
-  } finally {
-    URL.revokeObjectURL(url)
-  }
+  const img = await decodeImage(file)
+  const sc = scaledCanvas(img, maxSide)
+  if (!sc) return URL.createObjectURL(file)
+  return sc.canvas.toDataURL('image/jpeg', 0.8)
 }
 
 export interface OcrProgress {

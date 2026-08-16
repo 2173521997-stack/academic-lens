@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Eye, EyeOff, ExternalLink, Zap, CheckCircle2, XCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Eye, EyeOff, ExternalLink, Zap, CheckCircle2, XCircle, Keyboard, RefreshCw, ShieldCheck } from 'lucide-react'
 import { PROVIDERS, useSettingsStore, type ThemeMode } from '../stores/settingsStore'
 import { useAppStore } from '../stores/appStore'
 import { llmChat } from '../lib/llm'
@@ -10,6 +10,15 @@ const THEMES: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: '深色' }
 ]
 
+function StatusChip({ ok, text }: { ok: boolean; text: string }): React.JSX.Element {
+  return (
+    <span className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${ok ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
+      {ok ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
+      {text}
+    </span>
+  )
+}
+
 export default function SettingsView(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const update = useSettingsStore((s) => s.update)
@@ -19,9 +28,16 @@ export default function SettingsView(): React.JSX.Element {
   const [showKey, setShowKey] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [shortcutMsg, setShortcutMsg] = useState<string | null>(null)
+  const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean } | null>(null)
+  const [axTrusted, setAxTrusted] = useState<boolean | null>(null)
 
-  const shortcut = isMac ? '⌘⇧T' : 'Ctrl+Shift+T'
+  useEffect(() => {
+    void window.bridge.shortcutGetStatus().then(setShortcutState)
+    const offStatus = window.bridge.onShortcutStatus(setShortcutState)
+    if (isMac) void window.bridge.accessibilityGet().then(({ trusted }) => setAxTrusted(trusted))
+    return () => offStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const testConnection = async (): Promise<void> => {
     setTesting(true)
@@ -165,43 +181,80 @@ export default function SettingsView(): React.JSX.Element {
         </section>
 
         <section className="card space-y-3 p-5">
-          <h2 className="text-[13px] font-semibold text-ink-2">快捷键</h2>
+          <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+            <Keyboard size={14} /> 快捷键
+          </h2>
+          {isMac && (
+            <div className="rounded-xl border border-line bg-surface p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[12px] font-medium">
+                  <ShieldCheck size={13} className="text-accent" />
+                  一键翻译取词权限
+                  {axTrusted === null ? null : axTrusted ? (
+                    <StatusChip ok text="已授权" />
+                  ) : (
+                    <StatusChip ok={false} text="未授权" />
+                  )}
+                </span>
+                <button
+                  className="btn !px-3 !py-1.5 text-[11px]"
+                  onClick={() => {
+                    void window.bridge.accessibilityOpenSettings().then(() => {
+                      setTimeout(() => void window.bridge.accessibilityGet().then(({ trusted }) => setAxTrusted(trusted)), 3000)
+                    })
+                  }}
+                >
+                  去授权
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
+                开启后按 Cmd/Ctrl+X 可自动复制任意 App 中选中的文字并翻译。授权后建议重启本软件。
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between">
-            <span className="text-[13px]">唤起 / 隐藏小窗</span>
-            <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
-              {shortcut}
-            </kbd>
+            <span className="text-[13px]">一键翻译（复制选中 → 唤起 → 自动翻译）</span>
+            <div className="flex items-center gap-2">
+              {shortcutState && <StatusChip ok={shortcutState.selection} text={shortcutState.selection ? '已注册' : '未注册'} />}
+              <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
+                {isMac ? '⌘X' : 'Ctrl+X'}
+              </kbd>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[13px]">唤起 / 隐藏小窗（并聚焦输入框）</span>
+            <div className="flex items-center gap-2">
+              {shortcutState && <StatusChip ok={shortcutState.toggle} text={shortcutState.toggle ? '已注册' : '未注册'} />}
+              <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
+                {isMac ? '⌘⇧T' : 'Ctrl+Shift+T'}
+              </kbd>
+            </div>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[13px]">切换小窗 / 大窗</span>
-            <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
-              {isMac ? '⌘⇧M' : 'Ctrl+Shift+M'}
-            </kbd>
+            <div className="flex items-center gap-2">
+              {shortcutState && <StatusChip ok={shortcutState.mode} text={shortcutState.mode ? '已注册' : '未注册'} />}
+              <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
+                {isMac ? '⌘⇧M' : 'Ctrl+Shift+M'}
+              </kbd>
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[13px]">划词翻译（任意 App 选中文字）</span>
-            <input
-              className="input !w-56 !py-1.5 text-center text-[12px]"
-              value={settings.selectionShortcut}
-              placeholder="如 Ctrl+Shift+D / Cmd+Shift+D"
-              onChange={(e) => {
-                const raw = e.target.value.trim().replace(/\s+/g, '')
-                const accel = raw
-                  .replace(/Ctrl\+?|Control\+?/gi, 'CommandOrControl+')
-                  .replace(/Cmd\+?/gi, 'CommandOrControl+')
-                  .replace(/Command\+?/gi, 'CommandOrControl+')
-                void window.bridge.shortcutSetSelection(accel || 'CommandOrControl+Shift+D').then((ok) => {
-                  setShortcutMsg(ok ? '已生效' : '该组合键不可用或被占用，请换一个')
-                  if (ok) update({ selectionShortcut: accel || 'CommandOrControl+Shift+D' })
-                })
-              }}
-            />
-          </div>
-          {shortcutMsg && <p className="text-[11px] text-ok">{shortcutMsg}</p>}
+          {shortcutState && (!shortcutState.toggle || !shortcutState.mode) && (
+            <div className="flex items-center gap-2">
+              <button
+                className="btn !px-3 !py-1.5 text-[11px]"
+                onClick={() => void window.bridge.shortcutRetry().then(setShortcutState)}
+              >
+                <RefreshCw size={11} /> 重新注册快捷键
+              </button>
+              <p className="text-[11px] text-ink-3">可能被其他 App 占用，点此重试。</p>
+            </div>
+          )}
           <p className="text-[11px] leading-relaxed text-ink-3">
-            划词：在 Word / 浏览器 / PDF 中选中单词或句子，按 {isMac ? '⌘⇧D' : 'Ctrl+Shift+D'}，
-            小窗自动弹出——单词显示音标释义与例句，整句自动翻译。
-            {isMac && ' macOS 首次使用需在「系统设置 → 隐私与安全性 → 辅助功能」中授权。'}
+            一键翻译：在任意 App 选中单词或句子，按 {isMac ? '⌘X' : 'Ctrl+X'} 即自动完成「复制 → 唤起小窗 → 翻译」，
+            单词显示音标释义与例句，中文自动译成英文；选中文字不足时提示重新选择。
+            <br />
+            仅唤起：按 {isMac ? '⌘⇧T' : 'Ctrl+Shift+T'} 唤起小窗并聚焦输入框，自己 Cmd/Ctrl+V 粘贴。
           </p>
           <p className="text-[11px] text-ink-3">
             当前平台：{platform || '…'} · 快捷键在 Windows 与 macOS 上自动适配（⌘ / Ctrl）

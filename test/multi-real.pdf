@@ -1,0 +1,49 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>
+endobj
+5 0 obj
+<< /Length 353 >>
+stream
+BT /F1 9 Tf 72 760 Td (Introduction) Tj ET
+BT /F1 16 Tf 72 700 Td (Attention Is All You Need) Tj ET
+BT /F1 12 Tf 72 670 Td (The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.) Tj ET
+BT /F1 12 Tf 72 640 Td (In this work we propose the Transformer, a model architecture eschewing recurrence.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Length 343 >>
+stream
+BT /F1 9 Tf 72 760 Td (Method) Tj ET
+BT /F1 16 Tf 72 700 Td (Model Architecture) Tj ET
+BT /F1 12 Tf 72 670 Td (Most competitive neural sequence transduction models have an encoder-decoder structure.) Tj ET
+BT /F1 12 Tf 72 640 Td (The encoder maps an input sequence of symbol representations to a sequence of continuous representations.) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000373 00000 n 
+0000000776 00000 n 
+0000001169 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1239
+%%EOF

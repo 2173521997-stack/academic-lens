@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "学术透镜 — 安静、快速、聪明的英文阅读伴侣",
+  "author": "Academic Lens contributors",
+  "license": "MIT",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -13,16 +15,21 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac"
   },
+  "overrides": {
+    "@noble/hashes": "1.8.0"
+  },
   "build": {
     "appId": "com.academiclens.app",
     "productName": "Academic Lens",
     "directories": {
       "output": "release"
     },
+    "electronDist": "node_modules/electron/dist",
     "files": [
       "dist/**",
       "dist-electron/**",
-      "package.json"
+      "package.json",
+      "!node_modules/**"
     ],
     "win": {
       "target": [
@@ -57,7 +64,6 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tesseract.js": "^7.0.0",
-    "word-list": "^4.1.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -66,14 +72,12 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.2.0",
-    "concurrently": "^10.0.4",
     "cross-env": "^10.1.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^6.4.3",
-    "vite-plugin-electron": "^0.29.1",
-    "wait-on": "^9.1.0"
+    "vite-plugin-electron": "^0.29.1"
   }
 }

@@ -17,11 +17,17 @@ export interface LLMRequest {
   messages: LLMMessage[]
   temperature?: number
   maxTokens?: number
+  json?: boolean
 }
 
 export interface StreamHandlers {
   onChunk: (delta: string) => void
   onDone: () => void
+  onError: (message: string) => void
+}
+
+export interface CompleteHandlers {
+  onDone: (content: string, usage?: { promptTokens?: number; completionTokens?: number }) => void
   onError: (message: string) => void
 }
 
@@ -36,23 +42,29 @@ export interface Bridge {
   windowSetMode: (mode: 'mini' | 'full') => void
   windowSetAlwaysOnTop: (flag: boolean) => void
   windowHide: () => void
-  onModeChanged: (cb: (mode: 'mini' | 'full') => void) => void
-  onFullscreen: (cb: (full: boolean) => void) => void
-  onOpenFilePath: (cb: (filePath: string) => void) => void
-  onOpenSettings: (cb: () => void) => void
-  onSelectionText: (cb: (text: string) => void) => void
-  onSelectionEmpty: (cb: () => void) => void
-  selectionGrab: () => Promise<{ text: string; restored: boolean }>
-  shortcutSetSelection: (accel: string) => Promise<boolean>
+  onModeChanged: (cb: (mode: 'mini' | 'full') => void) => () => void
+  onFullscreen: (cb: (full: boolean) => void) => () => void
+  onOpenFilePath: (cb: (filePath: string) => void) => () => void
+  onOpenSettings: (cb: () => void) => () => void
+  onFocusInput: (cb: () => void) => () => void
+  onSelectionText: (cb: (text: string) => void) => () => void
+  onSelectionEmpty: (cb: (message?: string) => void) => () => void
+  accessibilityGet: () => Promise<{ trusted: boolean }>
+  accessibilityOpenSettings: () => Promise<boolean>
+  shortcutGetStatus: () => Promise<{ toggle: boolean; mode: boolean; selection: boolean }>
+  shortcutRetry: () => Promise<{ toggle: boolean; mode: boolean; selection: boolean }>
+  onShortcutStatus: (cb: (s: { toggle: boolean; mode: boolean; selection: boolean }) => void) => () => void
   speak: (text: string, rate?: number) => void
   llmStream: (id: string, req: LLMRequest, handlers: StreamHandlers) => void
   llmCancel: (id: string) => void
+  llmComplete: (id: string, req: LLMRequest, handlers: CompleteHandlers) => void
   minimize: () => void
   toggleMaximize: () => void
   close: () => void
   isMaximized: () => Promise<boolean>
-  onMaximized: (cb: (max: boolean) => void) => void
+  onMaximized: (cb: (max: boolean) => void) => () => void
   openExternal: (url: string) => Promise<unknown>
+  copyText: (text: string) => void
 }
 
 declare global {

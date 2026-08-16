@@ -218,7 +218,7 @@ function ImageTranslateView(props: { task: ImgTask; busy: boolean; onReset: () =
               </div>
             </div>
             <div className="mt-4 flex items-center justify-between">
-              <p className="text-[11px] text-ink-3">逐行对齐 → 双语对照 + 纯中文译文</p>
+              <p className="text-[11px] text-ink-3">逐行对齐 → 中文译文对照</p>
               <div className="flex gap-2">
                 <button className="btn" onClick={props.onReset}>放弃</button>
                 <button className="btn btn-primary" disabled={!task.lines.length} onClick={startTranslate}>

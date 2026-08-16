@@ -1,7 +1,7 @@
 import { llmStream } from './llm'
 import { useHistoryStore } from '../stores/historyStore'
 
-export type QuickMode = 'word' | 'translate' | 'explain'
+export type QuickMode = 'word' | 'translate' | 'cn2en'
 
 const SYS_WORD =
   '你是英语词典。请用简体中文解释用户给出的英文单词。必须严格按以下格式输出，每行一个字段，不要输出其他内容：\n' +
@@ -16,8 +16,28 @@ const SYS_WORD =
 const SYS_TRANSLATE =
   '你是专业学术翻译。将用户提供的英文内容翻译为简体中文，保持学术语气、术语准确、长难句拆分通顺。只输出译文，不要任何解释。'
 
-const SYS_EXPLAIN =
-  '你是英语阅读老师。请用简体中文讲解用户提供的英文句子：先给整句翻译，再逐层拆解句子结构（主谓宾、从句、修饰关系），并解释关键生词与固定搭配。使用 Markdown 排版。'
+const SYS_CN2EN_WORD =
+  '你是中英词典。用户给出中文词语，请给出最常用、最准确的英文翻译。必须严格按以下格式输出，每行一个字段，不要输出其他内容：\n' +
+  'word|英文单词\n' +
+  'phonetic|音标（如 /ˈæt.ən.ʃən/）\n' +
+  'pos|词性（如 n. / v. / adj.）\n' +
+  'def|英文释义，多条用；分隔\n' +
+  'ex1|英文例句 | 中文翻译\n' +
+  'ex2|英文例句 | 中文翻译\n' +
+  '如果是学术术语，在 def 末尾标注「（academic term: 所属领域）」'
+
+const SYS_CN2EN_SENT =
+  '你是专业中英翻译。将用户提供的中文内容翻译为地道、准确的英文，保持学术语气、术语准确。只输出译文，不要任何解释或前缀。'
+
+/** 是否含中文字符（触发中译英） */
+export function isCn(text: string): boolean {
+  return /[\u4e00-\u9fff]/.test(text)
+}
+
+/** 中文词语判定：1–8 个纯汉字（不含标点/数字/字母）→ 词典词卡；否则 → 直译 */
+export function isCnWord(text: string): boolean {
+  return /^[\u4e00-\u9fff]{1,8}$/.test(text.trim())
+}
 
 export interface QuickRecent {
   src: string
@@ -27,17 +47,27 @@ export interface QuickRecent {
 }
 
 const RECENT_KEY = 'quickRecent'
+const RECENT_MAX = 15
+let recentsCache: QuickRecent[] | null = null
 
 export async function loadRecents(): Promise<QuickRecent[]> {
+  if (recentsCache) return recentsCache
   const saved = await window.bridge.storeGet<QuickRecent[]>(RECENT_KEY)
-  return Array.isArray(saved) ? saved.slice(0, 8) : []
+  recentsCache = Array.isArray(saved) ? saved.slice(0, RECENT_MAX) : []
+  return recentsCache
 }
 
 export function saveRecent(entry: QuickRecent): void {
-  void loadRecents().then((list) => {
-    const next = [entry, ...list.filter((x) => x.src !== entry.src)].slice(0, 8)
-    void window.bridge.storeSet(RECENT_KEY, next)
-  })
+  const list = recentsCache ?? []
+  const next = [entry, ...list.filter((x) => x.src !== entry.src)].slice(0, RECENT_MAX)
+  recentsCache = next
+  void window.bridge.storeSet(RECENT_KEY, next)
+}
+
+/** 清空全部搜索历史 */
+export function clearRecents(): void {
+  recentsCache = []
+  void window.bridge.storeSet(RECENT_KEY, [])
 }
 
 export function quickTranslate(
@@ -45,7 +75,14 @@ export function quickTranslate(
   mode: QuickMode,
   handlers: { onChunk: (d: string) => void; onDone: (full: string) => void; onError: (m: string) => void }
 ): { cancel: () => void } {
-  const sys = mode === 'translate' ? SYS_TRANSLATE : mode === 'explain' ? SYS_EXPLAIN : SYS_WORD
+  let sys: string
+  if (mode === 'cn2en') {
+    sys = isCnWord(text) ? SYS_CN2EN_WORD : SYS_CN2EN_SENT
+  } else if (mode === 'translate') {
+    sys = SYS_TRANSLATE
+  } else {
+    sys = SYS_WORD
+  }
   let full = ''
   const call = llmStream(
     [

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Sparkles } from 'lucide-react'
 import { useAppStore } from './stores/appStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useWordbookStore } from './stores/wordbookStore'
@@ -8,7 +9,6 @@ import { useFileStore } from './stores/fileStore'
 import { parseAnyFile } from './lib/parse'
 import { isSupported } from './lib/types'
 import TitleBar from './components/TitleBar'
-import Sidebar from './components/Sidebar'
 import HomeView from './components/HomeView'
 import WordbookView from './components/WordbookView'
 import HistoryView from './components/HistoryView'
@@ -61,13 +61,19 @@ export default function App(): React.JSX.Element {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const onChange = (): void => applyTheme()
     mq.addEventListener('change', onChange)
-    useSettingsStore.subscribe((s) => {
+    const unsubSettings = useSettingsStore.subscribe((s) => {
       if (s.settings.theme !== undefined) applyTheme()
     })
-    window.bridge.onFullscreen(setFullscreen)
-    window.bridge.onOpenFilePath((p) => void openDroppedFile(p))
-    window.bridge.onOpenSettings(() => useAppStore.getState().go('settings'))
-    return () => mq.removeEventListener('change', onChange)
+    const offFullscreen = window.bridge.onFullscreen(setFullscreen)
+    const offOpenFile = window.bridge.onOpenFilePath((p) => void openDroppedFile(p))
+    const offOpenSettings = window.bridge.onOpenSettings(() => useAppStore.getState().go('settings'))
+    return () => {
+      mq.removeEventListener('change', onChange)
+      unsubSettings()
+      offFullscreen()
+      offOpenFile()
+      offOpenSettings()
+    }
   }, [])
 
   const rootCls = `flex h-screen w-screen flex-col overflow-hidden text-ink-1 ${
@@ -86,15 +92,24 @@ export default function App(): React.JSX.Element {
   return (
     <div className={`app-bg ${rootCls}`}>
       <TitleBar />
-      <div className="flex min-h-0 flex-1">
-        <Sidebar />
+      <div className="relative flex min-h-0 flex-1">
         <main className="min-w-0 flex-1 overflow-hidden">
           {view === 'home' && <HomeView />}
           {view === 'wordbook' && <WordbookView />}
           {view === 'history' && <HistoryView />}
           {view === 'settings' && <SettingsView />}
         </main>
-        {assistantOpen && <AssistantPanel />}
+        {assistantOpen ? (
+          <AssistantPanel />
+        ) : (
+          <button
+            className="absolute right-0 top-1/2 z-30 flex -translate-y-1/2 items-center gap-1.5 rounded-l-full border border-r-0 border-line bg-panel/95 py-2.5 pl-3 pr-2 text-[12px] font-medium text-accent shadow-md backdrop-blur transition hover:bg-accent hover:text-white"
+            onClick={() => useAppStore.getState().setAssistant(true)}
+            title="展开 AI 学术助手"
+          >
+            <Sparkles size={13} /> AI
+          </button>
+        )}
       </div>
     </div>
   )

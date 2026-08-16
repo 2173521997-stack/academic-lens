@@ -87,6 +87,8 @@ function sseStream(req: LLMRequest, handlers: {
 }
 
 export function createBrowserBridge(): Bridge {
+  const noop = (): void => undefined
+  const unsub = (): (() => void) => () => undefined
   return {
     appInfo: async () => ({
       platform: 'web',
@@ -105,20 +107,21 @@ export function createBrowserBridge(): Bridge {
     saveFile: async () => null,
     openFiles: async () => [],
     windowGetState: async () => ({ mode: 'full' as const, alwaysOnTop: false }),
-    windowSetMode: () => undefined,
-    windowSetAlwaysOnTop: () => undefined,
-    windowHide: () => undefined,
-    onModeChanged: () => undefined,
-    onFullscreen: () => undefined,
-    onOpenFilePath: () => undefined,
-    onOpenSettings: () => undefined,
-    onSelectionText: () => undefined,
-    onSelectionEmpty: () => undefined,
-    selectionGrab: async () => {
-      const text = window.getSelection()?.toString().trim() ?? ''
-      return { text, restored: true }
-    },
-    shortcutSetSelection: async () => true,
+    windowSetMode: noop,
+    windowSetAlwaysOnTop: noop,
+    windowHide: noop,
+    onModeChanged: unsub,
+    onFullscreen: unsub,
+    onOpenFilePath: unsub,
+    onOpenSettings: unsub,
+    onFocusInput: unsub,
+    onSelectionText: unsub,
+    onSelectionEmpty: unsub,
+    accessibilityGet: async () => ({ trusted: true }),
+    accessibilityOpenSettings: async () => true,
+    shortcutGetStatus: async () => ({ toggle: true, mode: true, selection: true }),
+    shortcutRetry: async () => ({ toggle: true, mode: true, selection: true }),
+    onShortcutStatus: unsub,
     speak: (text) => {
       try {
         const u = new SpeechSynthesisUtterance(text)
@@ -134,14 +137,58 @@ export function createBrowserBridge(): Bridge {
       abortControllers.get(id)?.abort()
       abortControllers.delete(id)
     },
-    minimize: () => undefined,
-    toggleMaximize: () => undefined,
-    close: () => undefined,
+    llmComplete: (id, req, handlers) => {
+      void (async () => {
+        const ctrl = new AbortController()
+        abortControllers.set(id, ctrl)
+        try {
+          const res = await fetch(`${req.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${req.apiKey}`
+            },
+            body: JSON.stringify({
+              model: req.model,
+              messages: req.messages,
+              stream: false,
+              temperature: req.temperature ?? 0.4,
+              ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+              ...(req.json ? { response_format: { type: 'json_object' } } : {})
+            }),
+            signal: ctrl.signal
+          })
+          if (!res.ok) {
+            const detail = await res.text().catch(() => '')
+            handlers.onError(`LLM 请求失败 (${res.status}): ${detail.slice(0, 200)}`)
+            return
+          }
+          const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+          handlers.onDone(data.choices?.[0]?.message?.content ?? '')
+        } catch (err) {
+          if (!ctrl.signal.aborted) {
+            handlers.onError(err instanceof Error ? err.message : String(err))
+          }
+        } finally {
+          abortControllers.delete(id)
+        }
+      })()
+    },
+    minimize: noop,
+    toggleMaximize: noop,
+    close: noop,
     isMaximized: async () => false,
-    onMaximized: () => undefined,
+    onMaximized: unsub,
     openExternal: async (url) => {
       window.open(url, '_blank')
       return true
+    },
+    copyText: (text) => {
+      try {
+        void navigator.clipboard.writeText(text)
+      } catch {
+        /* 忽略 */
+      }
     }
   }
 }

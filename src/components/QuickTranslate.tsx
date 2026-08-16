@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus, BookmarkCheck } from 'lucide-react'
-import { quickTranslate, loadRecents, type QuickMode, type QuickRecent } from '../lib/quickTranslate'
+import { quickTranslate, loadRecents, clearRecents, isCn, isCnWord, type QuickMode, type QuickRecent } from '../lib/quickTranslate'
 import { useFileStore } from '../stores/fileStore'
 import { useWindowStore } from '../stores/windowStore'
 import { useWordbookStore } from '../stores/wordbookStore'
@@ -39,6 +39,15 @@ export default function QuickTranslate(): React.JSX.Element {
   useEffect(() => {
     void loadRecents().then(setRecents)
     inputRef.current?.focus()
+    // Cmd/Ctrl+Shift+T：唤起小窗 → 进入单词界面 + 聚焦输入框，Cmd+V 粘贴即查词
+    const offFocus = window.bridge.onFocusInput(() => {
+      setMode('word')
+      setResult('')
+      setError(null)
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
+    return () => offFocus()
   }, [])
 
   // 推荐搜索：纯字母输入时推测完整单词
@@ -66,18 +75,22 @@ export default function QuickTranslate(): React.JSX.Element {
       const t = text.trim()
       const m = explicitMode ?? mode
       if (!t || streamingRef.current) return
+      // 自动检测：含中文一律走中译英（词→词卡，句→直译），无需手动切换
+      const eff: QuickMode = isCn(t) ? 'cn2en' : m
       streamingRef.current = true
       setStreaming(true)
       setError(null)
       setResult('')
       cancelRef.current = quickTranslate(
         t,
-        m,
+        eff,
         {
           onChunk: (d) => setResult((r) => r + d),
           onDone: () => {
             streamingRef.current = false
             setStreaming(false)
+            // 新记录立即出现在历史顶部
+            void loadRecents().then(setRecents)
           },
           onError: (err) => {
             streamingRef.current = false
@@ -105,6 +118,28 @@ export default function QuickTranslate(): React.JSX.Element {
     [run]
   )
 
+  // Cmd/Ctrl+X：一键翻译（自动复制选中 → 唤起 → 自动填入并翻译），唤起统一落在单词页面
+  useEffect(() => {
+    const offText = window.bridge.onSelectionText((text) => {
+      const t = text.trim()
+      if (!t) return
+      const isWord = /^[A-Za-z][A-Za-z'-]{1,45}$/.test(t)
+      // UI 固定在单词页面；prompt 仍按内容分流（词→词典词卡，句→翻译）
+      setMode('word')
+      setResult('')
+      setError(null)
+      setInput(t)
+      run(t, isWord ? 'word' : 'translate')
+    })
+    const offEmpty = window.bridge.onSelectionEmpty((message) => {
+      setError(message ?? '未检测到选中文字：请先选中单词或句子，再按 Cmd/Ctrl+X')
+    })
+    return () => {
+      offText()
+      offEmpty()
+    }
+  }, [run])
+
   useEffect(() => {
     if (!input.trim() || streamingRef.current) return
     // 疑似单词输入（纯字母）交给推荐系统，不自动翻译
@@ -115,21 +150,6 @@ export default function QuickTranslate(): React.JSX.Element {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [input, mode, run])
-
-  useEffect(() => {
-    window.bridge.onSelectionText((text) => {
-      const t = text.trim()
-      if (!t) return
-      const isWord = /^[A-Za-z][A-Za-z'-]{1,45}$/.test(t)
-      const m: QuickMode = isWord ? 'word' : 'translate'
-      setInput(t)
-      setMode(m)
-      run(t, m)
-    })
-    window.bridge.onSelectionEmpty(() => {
-      setError('未检测到选中文字：请先在目标应用中选中单词/句子，再按 Ctrl/Cmd+Shift+D' + (navigator.platform.includes('Mac') ? '（macOS 需在「系统设置→隐私与安全性→辅助功能」授权）' : ''))
-    })
-  }, [run])
 
   const stop = (): void => {
     cancelRef.current?.()
@@ -158,20 +178,28 @@ export default function QuickTranslate(): React.JSX.Element {
     }
   }
 
-  const wordCard = mode === 'word' && result && !streaming ? parseWordCard(result) : null
+  const cnInput = isCn(input)
+  const cn2enWord = cnInput && isCnWord(input)
+  const wordCard = (mode === 'word' || cn2enWord) && result && !streaming ? parseWordCard(result) : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-2.5">
-        <Segmented<QuickMode>
-          items={[
-            { value: 'word', label: '单词' },
-            { value: 'translate', label: '翻译' },
-            { value: 'explain', label: '讲解' }
-          ]}
-          value={mode}
-          onChange={setMode}
-        />
+        {cnInput ? (
+          <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
+            <span className="chip bg-accent-soft text-accent">中译英</span>
+            {cn2enWord ? '词语 → 词卡' : '句子 → 直译'}
+          </span>
+        ) : (
+          <Segmented<QuickMode>
+            items={[
+              { value: 'word', label: '单词' },
+              { value: 'translate', label: '翻译' }
+            ]}
+            value={mode}
+            onChange={setMode}
+          />
+        )}
         <div className="flex items-center gap-1">
           <button className="btn btn-ghost !p-1.5" onClick={() => void openFile()} title="打开文档翻译">
             {opening ? <Loader2 size={14} className="animate-spin" /> : <FolderOpen size={14} />}
@@ -186,7 +214,7 @@ export default function QuickTranslate(): React.JSX.Element {
         <textarea
           ref={inputRef}
           className="input min-h-[64px] resize-none !rounded-2xl !text-[14px]"
-          placeholder="粘贴或输入英文，自动翻译…（Ctrl/Cmd+Shift+D 划词取词）"
+          placeholder="输入英文查词 / 中文自动译英…（Ctrl/Cmd+Shift+T 唤起小窗）"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -244,7 +272,7 @@ export default function QuickTranslate(): React.JSX.Element {
         {streaming && (
           <div className="mb-1 flex items-center gap-2 text-[11px] text-ink-3">
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-            正在{mode === 'word' ? '查词' : mode === 'translate' ? '翻译' : '讲解'}…
+            正在{cnInput ? '中译英' : mode === 'word' ? '查词' : '翻译'}…
           </div>
         )}
 
@@ -253,9 +281,7 @@ export default function QuickTranslate(): React.JSX.Element {
             entry={wordCard}
             onSpeak={() => window.bridge.speak(wordCard.word)}
             onCopy={() => {
-              void navigator.clipboard.writeText(
-                `${wordCard.word} ${wordCard.phonetic} ${wordCard.pos} ${wordCard.def}`
-              )
+              window.bridge.copyText(`${wordCard.word} ${wordCard.phonetic} ${wordCard.pos} ${wordCard.def}`)
               setCopied(true)
               setTimeout(() => setCopied(false), 1500)
             }}
@@ -267,17 +293,13 @@ export default function QuickTranslate(): React.JSX.Element {
                 context: wordCard.exs[0]?.en ?? ''
               })
             }}
-            onTranslateSentence={() => run(input, 'translate')}
+            onTranslateSentence={cn2enWord ? undefined : () => run(input, 'translate')}
           />
         ) : result ? (
           <div className="card animate-float-in p-3">
             <div className={`select-text text-[13px] leading-relaxed ${streaming ? 'stream-caret' : ''}`}>
-              {mode === 'explain' ? (
-                <div className="md-body" dangerouslySetInnerHTML={{ __html: markdownLite(result) }} />
-              ) : (
-                result
-              )}
-            </div>
+            {result}
+          </div>
             {!streaming && (
               <div className="mt-2 flex items-center gap-1 border-t border-line pt-2">
                 <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={() => window.bridge.speak(result)} title="朗读">
@@ -286,7 +308,7 @@ export default function QuickTranslate(): React.JSX.Element {
                 <button
                   className="btn btn-ghost !px-2 !py-1 text-[11px]"
                   onClick={() => {
-                    void navigator.clipboard.writeText(result)
+                    window.bridge.copyText(result)
                     setCopied(true)
                     setTimeout(() => setCopied(false), 1500)
                   }}
@@ -301,18 +323,30 @@ export default function QuickTranslate(): React.JSX.Element {
             <div className="py-8 text-center text-[11px] leading-relaxed text-ink-3">
               上课 / 读论文时的随手翻译
               <br />
-              选中单词按 <kbd className="rounded bg-surface px-1.5 py-0.5 font-semibold">Ctrl/Cmd+Shift+D</kbd> 查词
+              复制单词后按 <kbd className="rounded bg-surface px-1.5 py-0.5 font-semibold">Ctrl/Cmd+Shift+T</kbd> 唤起小窗
               <br />
-              粘贴图片进大窗可 OCR 翻译
+              粘贴即译 · 输入中文词语自动译成英文词卡，中文句子直接直译
             </div>
           )
         )}
 
         {!streaming && recents.length > 0 && (
           <div className="mt-3">
-            <p className="mb-1.5 flex items-center gap-1 text-[10px] font-medium text-ink-3">
-              <History size={10} /> 搜索历史（点击回看 · ⭐ 加入生词本）
-            </p>
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="flex items-center gap-1 text-[10px] font-medium text-ink-3">
+                <History size={10} /> 搜索历史（点击回看 · ⭐ 加入生词本）
+              </p>
+              <button
+                className="flex items-center gap-0.5 text-[10px] text-ink-3 transition hover:text-danger"
+                onClick={() => {
+                  clearRecents()
+                  setRecents([])
+                }}
+                title="清空全部搜索历史"
+              >
+                <Eraser size={10} /> 清空全部
+              </button>
+            </div>
             <div className="space-y-1">
               {recents.map((r) => {
                 const word = r.mode === 'word' ? r.src.trim() : /^[A-Za-z][A-Za-z'-]{1,45}$/.test(r.src.trim()) ? r.src.trim() : ''
@@ -326,9 +360,11 @@ export default function QuickTranslate(): React.JSX.Element {
                       className="min-w-0 flex-1 px-2.5 py-1.5 text-left"
                       onClick={() => {
                         setInput(r.src)
-                        setMode(r.mode)
+                        // cn2en 由输入自动派生，不落回 mode 状态
+                        if (r.mode !== 'cn2en') setMode(r.mode)
                         setResult('')
-                        setRecents(recents.filter((x) => x !== r))
+                        // 立即翻译，历史条目保留不消失
+                        run(r.src, r.mode)
                       }}
                     >
                       <span className="block truncate text-[11px] text-ink-2">{r.src}</span>
@@ -398,7 +434,7 @@ export default function QuickTranslate(): React.JSX.Element {
             disabled={!input.trim()}
             onClick={() => run(input.trim())}
           >
-            <Send size={12} /> {mode === 'word' ? '查词' : mode === 'translate' ? '翻译' : '讲解'}
+            <Send size={12} /> {cnInput ? '中译英' : mode === 'word' ? '查词' : '翻译'}
           </button>
         )}
       </div>
@@ -412,7 +448,7 @@ function WordCard(props: {
   onCopy: () => void
   copied: boolean
   onBookmark: () => void
-  onTranslateSentence: () => void
+  onTranslateSentence?: () => void
 }): React.JSX.Element {
   const { entry: w } = props
   return (
@@ -442,30 +478,15 @@ function WordCard(props: {
         </div>
       ))}
       <div className="mt-2.5 flex items-center gap-1 border-t border-line pt-2">
-        <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={props.onTranslateSentence}>
-          翻译整句
-        </button>
+        {props.onTranslateSentence && (
+          <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={props.onTranslateSentence}>
+            翻译整句
+          </button>
+        )}
         <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={props.onCopy}>
           {props.copied ? <span className="text-ok">已复制</span> : (<><Copy size={11} /> 复制词条</>)}
         </button>
       </div>
     </div>
   )
-}
-
-function markdownLite(md: string): string {
-  let html = md
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  html = html
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
-    .replace(/\n{2,}/g, '</p><p>')
-    .replace(/\n/g, '<br/>')
-  return `<p>${html}</p>`
 }

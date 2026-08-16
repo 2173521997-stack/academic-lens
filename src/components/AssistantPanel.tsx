@@ -3,6 +3,7 @@ import { PanelRightClose, Send, Square, Trash2 } from 'lucide-react'
 import { useChatStore } from '../stores/chatStore'
 import { useAppStore } from '../stores/appStore'
 import { marked } from 'marked'
+import { sanitizeHtml } from '../lib/sanitize'
 import { useFileStore } from '../stores/fileStore'
 
 const QUICK_CMDS = ['/总结', '/翻译', '/解释术语', '/推导公式', '/出题']
@@ -76,7 +77,7 @@ export default function AssistantPanel(): React.JSX.Element {
               >
                 <div
                   className="md-body !text-[13px]"
-                  dangerouslySetInnerHTML={{ __html: marked.parse(m.content || '…', { async: false }) as string }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(marked.parse(m.content || '…', { async: false }) as string) }}
                 />
               </div>
             )}

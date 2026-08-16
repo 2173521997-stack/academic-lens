@@ -61,9 +61,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       const text = (raw ?? get().input).trim()
       if (!text || get().streaming) return
 
-      let finalText = text
-      const { refs } = resolveRefs(finalText)
-      finalText = text
+      // @N 引用在发送给 LLM 的内容中真正替换为引用说明
+      const { content: finalText, refs } = resolveRefs(text)
 
       const fileCtx = getFileContextForChat()
       const hist = get().messages.slice(-8).map((m) => ({ role: m.role, content: m.content }) as LLMMessage)
@@ -98,13 +97,14 @@ export const useChatStore = create<ChatState>((set, get) => {
       const patch = (p: Partial<ChatMessage>): void =>
         set({ messages: get().messages.map((m) => (m.id === assistantId ? { ...m, ...p } : m)) })
 
+      let acc = ''
       currentCall = llmStream(messages, {
         onChunk: (d) => {
-          const cur = get().messages.find((m) => m.id === assistantId)
-          patch({ content: (cur?.content ?? '') + d })
+          acc += d
+          patch({ content: acc })
         },
         onDone: () => {
-          patch({ content: get().messages.find((m) => m.id === assistantId)?.content ?? '' })
+          patch({ content: acc })
           set({ streaming: false, streamingId: null })
           currentCall = null
           useHistoryStore.getState().add('chat', finalText.slice(0, 40), '已回复')

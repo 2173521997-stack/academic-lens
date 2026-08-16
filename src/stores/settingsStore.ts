@@ -8,6 +8,7 @@ export interface ProviderPreset {
 
 export const PROVIDERS: Record<string, ProviderPreset> = {
   deepseek: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  mimo: { label: 'MiMo（小米）', baseUrl: 'https://api.mimo.xiaomimimo.com/v1', model: 'mimo-7b-rl' },
   doubao: {
     label: '豆包（火山方舟）',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
@@ -25,7 +26,6 @@ export interface Settings {
   apiKey: string
   model: string
   theme: ThemeMode
-  selectionShortcut: string
   ocrLang: 'eng' | 'chi_sim' | 'eng+chi_sim'
 }
 
@@ -43,7 +43,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     apiKey: '',
     model: PROVIDERS.deepseek.model,
     theme: 'system',
-    selectionShortcut: 'CommandOrControl+Shift+D',
     ocrLang: 'eng+chi_sim'
   },
   loaded: false,

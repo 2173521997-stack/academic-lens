@@ -5,6 +5,8 @@ export interface Segment {
   translation: string
   translating: boolean
   error?: string
+  /** PDF 页码（1 起），用于「按页分组」展示；非 PDF 无此字段 */
+  page?: number
 }
 
 export interface DocInfo {

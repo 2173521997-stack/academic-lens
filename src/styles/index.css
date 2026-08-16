@@ -80,7 +80,7 @@ body {
 }
 
 .mini-window {
-  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
   border: 1px solid var(--line);
   border-radius: 14px;
   box-shadow: var(--shadow-pop);
@@ -96,7 +96,7 @@ body {
 }
 
 .app-bg {
-  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
 }
@@ -127,8 +127,6 @@ body {
 @layer components {
 .glass {
   background: var(--panel);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--line);
 }
 

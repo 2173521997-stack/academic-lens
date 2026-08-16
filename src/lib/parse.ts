@@ -6,8 +6,8 @@ export function newId(): string {
   return `seg_${Date.now()}_${++uid}`
 }
 
-export function makeSegment(type: 'h' | 'p', text: string): Segment {
-  return { id: newId(), type, text, translation: '', translating: false }
+export function makeSegment(type: 'h' | 'p', text: string, page?: number): Segment {
+  return { id: newId(), type, text, translation: '', translating: false, ...(page !== undefined ? { page } : {}) }
 }
 
 export function splitParagraphs(text: string): string[] {
@@ -39,53 +39,49 @@ interface PdfTextItemLike {
   fontName?: string
 }
 
-function extractPdfLines(pdf: import('pdfjs-dist').PDFDocumentProxy): Promise<TextLine[][]> {
-  return Promise.all(
-    Array.from({ length: pdf.numPages }, (_, i) => pdf.getPage(i + 1).then(async (page) => {
-      const content = await page.getTextContent()
-      const items: TextItem[] = []
-      let maxH = 8
-      for (const it of content.items as unknown as PdfTextItemLike[]) {
-        const str = it.str ?? ''
-        if (!str) continue
-        const t = it.transform ?? [1, 0, 0, 1, 0, 0]
-        const h = Math.abs(t[3] || 0)
-        if (h > maxH) maxH = h
-        items.push({
-          str,
-          x: t[4],
-          y: t[5],
-          height: h,
-          bold: /bold/i.test(it.fontName ?? '')
-        })
-      }
-      items.sort((a, b) => a.y - b.y || a.x - b.x)
+async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promise<TextLine[]> {
+  const content = await page.getTextContent()
+  const items: TextItem[] = []
+  let maxH = 8
+  for (const it of content.items as unknown as PdfTextItemLike[]) {
+    const str = it.str ?? ''
+    if (!str) continue
+    const t = it.transform ?? [1, 0, 0, 1, 0, 0]
+    const h = Math.abs(t[3] || 0)
+    if (h > maxH) maxH = h
+    items.push({
+      str,
+      x: t[4],
+      y: t[5],
+      height: h,
+      bold: /bold/i.test(it.fontName ?? '')
+    })
+  }
+  items.sort((a, b) => a.y - b.y || a.x - b.x)
 
-      const lines: TextLine[] = []
-      for (const item of items) {
-        const last = lines[lines.length - 1]
-        if (last && Math.abs(item.y - last.y) <= Math.max(item.height, last.height) * 0.5) {
-          last.items.push(item)
-          last.height = Math.max(last.height, item.height)
-        } else {
-          lines.push({ items: [item], y: item.y, height: item.height, text: '' })
-        }
-      }
+  const lines: TextLine[] = []
+  for (const item of items) {
+    const last = lines[lines.length - 1]
+    if (last && Math.abs(item.y - last.y) <= Math.max(item.height, last.height) * 0.5) {
+      last.items.push(item)
+      last.height = Math.max(last.height, item.height)
+    } else {
+      lines.push({ items: [item], y: item.y, height: item.height, text: '' })
+    }
+  }
 
-      for (const line of lines) {
-        line.items.sort((a, b) => a.x - b.x)
-        let text = ''
-        let prevEnd = 0
-        for (const it of line.items) {
-          if (text && it.x > prevEnd + it.height * 0.25) text += ' '
-          text += it.str
-          prevEnd = it.x + it.str.length * it.height * 0.55
-        }
-        line.text = text
-      }
-      return lines.filter((l) => l.text.trim().length > 0)
-    }))
-  )
+  for (const line of lines) {
+    line.items.sort((a, b) => a.x - b.x)
+    let text = ''
+    let prevEnd = 0
+    for (const it of line.items) {
+      if (text && it.x > prevEnd + it.height * 0.25) text += ' '
+      text += it.str
+      prevEnd = it.x + it.str.length * it.height * 0.55
+    }
+    line.text = text
+  }
+  return lines.filter((l) => l.text.trim().length > 0)
 }
 
 export async function parsePdf(data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<Segment[]> {
@@ -95,28 +91,44 @@ export async function parsePdf(data: Uint8Array, onProgress?: (done: number, tot
   const doc = await pdfjs.getDocument({ data }).promise
   const segs: Segment[] = []
   try {
-    const pageLines = await extractPdfLines(doc)
-    for (let i = 0; i < pageLines.length; i++) {
-      const lines = pageLines[i]
+    // 有界并发（3 页同时），避免百页文档一次性全量解析导致内存峰值
+    const CONCURRENCY = 3
+    const results: TextLine[][] = new Array(doc.numPages)
+    let next = 0
+    const worker = async (): Promise<void> => {
+      while (next < doc.numPages) {
+        const i = next++
+        const page = await doc.getPage(i + 1)
+        results[i] = await extractPageLines(page)
+        onProgress?.(i + 1, doc.numPages)
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, doc.numPages) }, () => worker())
+    )
+
+    for (let i = 0; i < results.length; i++) {
+      const lines = results[i]
+      const pageNo = i + 1
       const bodyHeight = lines.reduce((m, l) => Math.max(m, l.height), 8)
       let cur = ''
       for (let li = 0; li < lines.length; li++) {
         const line = lines[li]
         const text = line.text.trim()
         if (!text) continue
-        const next = lines[li + 1]
+        const nextLine = lines[li + 1]
         const isHeading = line.height >= bodyHeight * 1.18
-        const gapToNext = next ? next.y - (line.y + line.height) : 0
+        const gapToNext = nextLine ? nextLine.y - (line.y + line.height) : 0
         const paraBreak = gapToNext > Math.max(line.height, 2) * 0.7
         if (isHeading) {
-          if (cur.trim()) segs.push(makeSegment('p', cur.trim()))
+          if (cur.trim()) segs.push(makeSegment('p', cur.trim(), pageNo))
           cur = ''
-          segs.push(makeSegment('h', text))
+          segs.push(makeSegment('h', text, pageNo))
           continue
         }
         if (cur) {
           if (paraBreak || /[.!?;:]$/.test(cur)) {
-            segs.push(makeSegment('p', cur.trim()))
+            segs.push(makeSegment('p', cur.trim(), pageNo))
             cur = text
           } else {
             cur += ' ' + text
@@ -125,8 +137,7 @@ export async function parsePdf(data: Uint8Array, onProgress?: (done: number, tot
           cur = text
         }
       }
-      if (cur.trim()) segs.push(makeSegment('p', cur.trim()))
-      onProgress?.(i + 1, pageLines.length)
+      if (cur.trim()) segs.push(makeSegment('p', cur.trim(), pageNo))
     }
   } finally {
     await (doc as unknown as { loadingTask: { destroy: () => Promise<void> } }).loadingTask.destroy()

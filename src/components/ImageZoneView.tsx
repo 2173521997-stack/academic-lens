@@ -54,7 +54,7 @@ export default function ImageZoneView(props: { onImageFile: (file: Blob, name: s
         <div className="mt-5 flex items-start justify-center gap-6 rounded-2xl border border-line bg-panel px-5 py-4">
           <Step icon={<Camera size={16} />} title="① 截图" desc="任意截图工具（Win+Shift+S / Cmd+Shift+4）截图到剪贴板" />
           <Step icon={<ClipboardPaste size={16} />} title="② 粘贴" desc="回到本页面按 Ctrl/Cmd+V" />
-          <Step icon={<ImageUp size={16} />} title="③ 翻译" desc="自动 OCR 识别 → 双语对照 / 中文译文" />
+          <Step icon={<ImageUp size={16} />} title="③ 翻译" desc="自动 OCR 识别 → 中文译文对照" />
         </div>
       </div>
     </div>

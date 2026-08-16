@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react'
-import { ArrowLeft, Download, Play, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star } from 'lucide-react'
+import { memo, useMemo, useState, Fragment } from 'react'
+import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy } from 'lucide-react'
 import { useFileStore, type DocMode } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useAppStore } from '../stores/appStore'
 import { useChatStore } from '../stores/chatStore'
 import Segmented from './Segmented'
-import { buildExportMd } from '../lib/exportMd'
+import { buildPlainText, buildPlainTextHeader } from '../lib/exportText'
 import { marked } from 'marked'
-import CnView from './CnView'
+import { sanitizeHtml } from '../lib/sanitize'
+import type { Segment } from '../lib/types'
 
 export default function FileView(): React.JSX.Element {
   const doc = useFileStore((s) => s.doc)
@@ -22,6 +23,7 @@ export default function FileView(): React.JSX.Element {
   const translating = segments.some((s) => s.translating)
 
   const [exported, setExported] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const summary = useFileStore((s) => s.summary)
   const summaryState = useFileStore((s) => s.summaryState)
@@ -31,11 +33,24 @@ export default function FileView(): React.JSX.Element {
   const untranslated = useMemo(() => segments.filter((s) => !s.translation && !s.translating && !s.error).length, [segments])
   const doneCount = segments.filter((s) => s.translation).length
 
-  const exportMd = async (): Promise<void> => {
+  const copyAll = (): void => {
+    window.bridge.copyText(buildPlainText(segments))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const exportText = async (): Promise<void> => {
     if (!doc) return
-    const md = buildExportMd(doc, segments, summary)
+    const md = buildPlainTextHeader(doc, segments)
     const base = doc.name.replace(/\.[^.]+$/, '')
-    const path = await window.bridge.saveFile({ defaultPath: `${base}-双语对照.md`, data: md })
+    const path = await window.bridge.saveFile({
+      defaultPath: `${base}-中文译文.md`,
+      data: md,
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: '纯文本', extensions: ['txt'] }
+      ]
+    })
     if (path) {
       setExported(true)
       setTimeout(() => setExported(false), 2000)
@@ -59,40 +74,40 @@ export default function FileView(): React.JSX.Element {
         </div>
 
         <div className="flex items-center gap-3">
-          {mode !== 'cn' && (
-            <>
-              {mode === 'translate' && !translating && untranslated > 0 && (
-                <button className="btn btn-primary" onClick={translateAll}>
-                  <Play size={13} /> 翻译全部
-                </button>
-              )}
-              {mode === 'translate' && translating && (
-                <button className="btn" onClick={stopTranslate}>
-                  <Square size={12} /> 停止
-                </button>
-              )}
-              {mode === 'summary' && summaryState === 'idle' && (
-                <button className="btn btn-primary" onClick={summarize}>
-                  <Sparkles size={13} /> 生成摘要
-                </button>
-              )}
-              {mode === 'summary' && summaryState === 'streaming' && (
-                <button className="btn" onClick={stopSummarize}>
-                  <Square size={12} /> 停止
-                </button>
-              )}
-              <button className="btn" onClick={() => void exportMd()}>
-                {exported ? <Star size={13} className="text-star" /> : <Download size={13} />}
-                {exported ? '已导出' : '导出 MD'}
-              </button>
-            </>
+          {mode === 'cn' && !translating && untranslated > 0 && (
+            <button className="btn btn-primary" onClick={translateAll}>
+              <Languages size={13} /> 整体翻译
+            </button>
           )}
+          {mode === 'cn' && translating && (
+            <button className="btn" onClick={stopTranslate}>
+              <Square size={12} /> 停止
+            </button>
+          )}
+          {mode === 'summary' && summaryState === 'idle' && (
+            <button className="btn btn-primary" onClick={summarize}>
+              <Sparkles size={13} /> 生成摘要
+            </button>
+          )}
+          {mode === 'summary' && summaryState === 'streaming' && (
+            <button className="btn" onClick={stopSummarize}>
+              <Square size={12} /> 停止
+            </button>
+          )}
+          {mode === 'cn' && (
+            <button className="btn" onClick={copyAll}>
+              {copied ? <Star size={13} className="text-star" /> : <Copy size={13} />}
+              {copied ? '已复制' : '复制译文'}
+            </button>
+          )}
+          <button className="btn" onClick={() => void exportText()}>
+            {exported ? <Star size={13} className="text-star" /> : <Download size={13} />}
+            {exported ? '已导出' : '导出译文'}
+          </button>
           <Segmented<DocMode>
             items={[
-              { value: 'translate', label: '双语' },
               { value: 'cn', label: '中文译文' },
-              { value: 'summary', label: '总结' },
-              { value: 'qa', label: '问答' }
+              { value: 'summary', label: '总结' }
             ]}
             value={mode}
             onChange={setMode}
@@ -108,76 +123,131 @@ export default function FileView(): React.JSX.Element {
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        {mode === 'translate' && <BilingualView />}
-        {mode === 'cn' && <CnView segments={segments} />}
+        {mode === 'cn' && <CnSplitView />}
         {mode === 'summary' && <SummaryCard summary={summary} state={summaryState} error={error} />}
-        {mode === 'qa' && <QAView />}
       </div>
     </div>
   )
 }
 
-function BilingualView(): React.JSX.Element {
+/** 中文译文视图：左右双栏对照（左英文原文 / 右中文译文），段落逐行对齐，PDF 按页分组 */
+function CnSplitView(): React.JSX.Element {
   const segments = useFileStore((s) => s.segments)
   const translateOne = useFileStore((s) => s.translateOne)
   const addWord = useWordbookStore((s) => s.add)
   const addUserQuick = useChatStore((s) => s.addUserQuick)
 
+  let lastPage: number | undefined
+
   return (
-    <div className="mx-auto max-w-4xl space-y-3">
-      {segments.map((seg, i) => (
-        <div key={seg.id} className="card card-hover group animate-float-in p-4" style={{ animationDelay: `${Math.min(i * 15, 300)}ms` }}>
-          {seg.type === 'h' ? (
-            <h2 className="text-[17px] font-semibold">{seg.text}</h2>
-          ) : (
-            <>
-              <p className="text-[14px] leading-relaxed text-ink-1 select-text">{seg.text}</p>
-              <div className="mt-2 border-t border-line pt-2">
-                {seg.translating ? (
-                  <p className="stream-caret text-[14px] leading-relaxed text-ink-2">{seg.translation || '翻译中…'}</p>
-                ) : seg.translation ? (
-                  <p className="select-text text-[14px] leading-relaxed text-ink-2">{seg.translation}</p>
-                ) : seg.error ? (
-                  <p className="text-[12px] text-danger">{seg.error}</p>
-                ) : (
-                  <p className="text-[12px] text-ink-3">未翻译</p>
-                )}
+    <div className="mx-auto max-w-6xl">
+      {/* 吸顶列头 */}
+      <div className="sticky top-0 z-10 grid grid-cols-[fit-content(50%)_minmax(0,1fr)] gap-x-6 border-b border-line bg-panel/95 px-3 py-1.5 backdrop-blur">
+        <span className="text-[11px] font-semibold tracking-wide text-ink-3">英文原文</span>
+        <span className="text-[11px] font-semibold tracking-wide text-ink-3">中文译文</span>
+      </div>
+      {segments.map((seg, i) => {
+        const pageBreak = seg.page !== undefined && seg.page !== lastPage
+        lastPage = seg.page
+        return (
+          <Fragment key={seg.id}>
+            {pageBreak && (
+              <div className="mt-5 mb-1 flex items-center gap-2 first:mt-0">
+                <span className="chip !bg-accent/10 !text-accent">第 {seg.page} 页</span>
+                <span className="h-px flex-1 bg-line" />
               </div>
-            </>
-          )}
-          <div className="mt-2 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-            {!seg.translation && !seg.translating && seg.type === 'p' && (
-              <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={() => translateOne(seg.id)}>
-                <Play size={10} /> 翻译此段
-              </button>
             )}
-            <button
-              className="btn btn-ghost !px-2 !py-1 text-[11px]"
-              onClick={() => addUserQuick(`（@${i + 1}）`)}
-              title="在 AI 助手中引用此段"
-            >
-              <MessageSquare size={10} /> 问 AI
-            </button>
-            <button
-              className="btn btn-ghost !px-2 !py-1 text-[11px]"
-              title="加入生词本"
-              onClick={() => {
-                const firstWord = (seg.text.match(/[A-Za-z][A-Za-z-]{2,}/) ?? [''])[0]
-                if (!firstWord) return
-                addWord({ word: firstWord, definition: '', context: seg.text.slice(0, 120) })
-              }}
-            >
-              <BookmarkPlus size={10} /> 收藏
-            </button>
-          </div>
-        </div>
-      ))}
+            <SplitRow
+              seg={seg}
+              index={i}
+              translateOne={translateOne}
+              addWord={addWord}
+              addUserQuick={addUserQuick}
+            />
+          </Fragment>
+        )
+      })}
     </div>
   )
 }
 
+/** 双栏对照行：左栏按内容自适应（fit-content(50%)），右栏占剩余；操作条在行底文档流，hover 淡入，不与译文重叠 */
+const SplitRow = memo(function SplitRow({
+  seg,
+  index,
+  translateOne,
+  addWord,
+  addUserQuick
+}: {
+  seg: Segment
+  index: number
+  translateOne: (segId: string) => void
+  addWord: (w: { word: string; definition: string; context?: string }) => void
+  addUserQuick: (refText: string) => void
+}): React.JSX.Element {
+  return (
+    <div
+      data-page={seg.page}
+      className="group grid grid-cols-[fit-content(50%)_minmax(0,1fr)] gap-x-6 border-b border-line/60 px-3 py-2.5 transition hover:bg-surface/70"
+    >
+      {/* 左栏：英文原文 */}
+      <div className="min-w-0 select-text text-[14px] leading-[1.7] text-ink-1">
+        {seg.type === 'h' ? <span className="font-semibold">{seg.text}</span> : seg.text}
+      </div>
+      {/* 右栏：中文译文（深灰 14px，与原文同号，醒目但不喧宾夺主） */}
+      <div className="min-w-0 text-[14px] leading-[1.7] text-ink-2">
+        {seg.translating ? (
+          <span className="stream-caret">{seg.translation || '翻译中…'}</span>
+        ) : seg.translation ? (
+          <span className="select-text">{seg.translation}</span>
+        ) : seg.error ? (
+          <span className="text-danger">{seg.error}</span>
+        ) : (
+          <span className="text-ink-3/60">未翻译</span>
+        )}
+      </div>
+
+      {/* 操作区：行底文档流占位，hover 淡入，绝不与译文重叠 */}
+      <div className="col-span-2 mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+        {seg.error && (
+          <button
+            className="btn btn-ghost !px-2 !py-0.5 text-[11px]"
+            onClick={() => translateOne(seg.id)}
+            title="重试翻译此段"
+          >
+            <RefreshCw size={10} /> 重试
+          </button>
+        )}
+        {!seg.translation && !seg.translating && !seg.error && seg.type === 'p' && (
+          <button className="btn btn-ghost !px-2 !py-0.5 text-[11px]" onClick={() => translateOne(seg.id)}>
+            <Languages size={10} /> 翻译此段
+          </button>
+        )}
+        <button
+          className="btn btn-ghost !px-2 !py-0.5 text-[11px]"
+          onClick={() => addUserQuick(`（@${index + 1}）`)}
+          title="在 AI 助手中引用此段"
+        >
+          <MessageSquare size={10} /> 问 AI
+        </button>
+        <button
+          className="btn btn-ghost !px-2 !py-0.5 text-[11px]"
+          title="加入生词本"
+          onClick={() => {
+            const firstWord = (seg.text.match(/[A-Za-z][A-Za-z-]{2,}/) ?? [''])[0]
+            if (!firstWord) return
+            addWord({ word: firstWord, definition: '', context: seg.text.slice(0, 120) })
+          }}
+        >
+          <BookmarkPlus size={10} /> 收藏
+        </button>
+      </div>
+    </div>
+  )
+})
+
 function SummaryCard({ summary, state, error }: { summary: string; state: string; error: string | null }): React.JSX.Element {
-  const html = useMemo(() => marked.parse(summary, { async: false }) as string, [summary])
+  const html = useMemo(() => sanitizeHtml(marked.parse(summary, { async: false }) as string), [summary])
   const showAsk = useAppStore((s) => s.setAssistant)
   const addUserQuick = useChatStore((s) => s.addUserQuick)
 
@@ -234,33 +304,6 @@ function SummaryCard({ summary, state, error }: { summary: string; state: string
         </div>
         <div className="md-body" dangerouslySetInnerHTML={{ __html: html }} />
       </div>
-    </div>
-  )
-}
-
-function QAView(): React.JSX.Element {
-  const messages = useChatStore((s) => s.messages)
-  if (!messages.length) {
-    return (
-      <div className="mx-auto flex max-w-xl flex-col items-center gap-3 py-24 text-center">
-        <p className="text-[15px] font-medium">基于当前文档提问</p>
-        <p className="text-[12px] text-ink-3">支持 @段落编号 引用 · /总结 /翻译 /解释术语 /出题</p>
-      </div>
-    )
-  }
-  return (
-    <div className="mx-auto max-w-2xl space-y-3">
-      {messages.map((m) => (
-        <div key={m.id} className={`card animate-msg-in p-4 ${m.role === 'user' ? '!bg-accent-soft' : ''}`}>
-          {m.role === 'user' ? (
-            <p className="text-[14px] font-medium select-text">{m.content}</p>
-          ) : m.error ? (
-            <p className="text-[13px] text-danger">{m.error}</p>
-          ) : (
-            <div className="md-body stream-caret" dangerouslySetInnerHTML={{ __html: marked.parse(m.content, { async: false }) as string }} />
-          )}
-        </div>
-      ))}
     </div>
   )
 }
