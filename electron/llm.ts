@@ -3,16 +3,10 @@ export interface LLMMessage {
   content: string
 }
 
-export interface LLMRequest {
-  baseUrl: string
-  apiKey: string
-  model: string
-  messages: LLMMessage[]
-  temperature?: number
-  maxTokens?: number
-  /** 请求 JSON 模式输出（response_format: json_object），仅非流式生效 */
-  json?: boolean
-}
+import { type LLMRequest } from '../src/bridge/types'
+
+// 重新导出渲染侧请求类型，仅新增本进程需要的字段
+export type { LLMRequest } from '../src/bridge/types'
 
 export interface LLMResult {
   full: string
@@ -75,6 +69,7 @@ export async function streamLLM(
     temperature: req.temperature ?? 0.4
   }
   if (req.maxTokens) body.max_tokens = req.maxTokens
+  if (req.contextLength) body.context_length = req.contextLength
 
   const res = await withRetry(
     () =>
@@ -146,6 +141,7 @@ export async function llmComplete(
   }
   if (req.maxTokens) body.max_tokens = req.maxTokens
   if (req.json) body.response_format = { type: 'json_object' }
+  if (req.contextLength) body.context_length = req.contextLength
 
   const res = await withRetry(
     () =>

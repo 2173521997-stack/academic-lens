@@ -57,6 +57,7 @@
     }
   },
   "dependencies": {
+    "docx": "^9.7.1",
     "lucide-react": "^1.31.0",
     "mammoth": "^1.12.1",
     "marked": "^18.0.9",

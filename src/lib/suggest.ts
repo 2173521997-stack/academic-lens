@@ -1,5 +1,6 @@
 import { useWordbookStore } from '../stores/wordbookStore'
 import { loadRecents } from './quickTranslate'
+import { levenshtein } from './organize'
 
 let raw: string | null = null
 let loading: Promise<string> | null = null
@@ -125,4 +126,64 @@ export async function suggest(prefix: string, limit = 8): Promise<string[]> {
   return hits
     .sort((a, b) => score(a) - score(b) || (rank.get(a) ?? 0) - (rank.get(b) ?? 0))
     .slice(0, limit)
+}
+
+/** 二分查找一个词是否在词库中（小写精确匹配） */
+export async function isKnownWord(word: string): Promise<boolean> {
+  const w = word.trim().toLowerCase()
+  if (!w) return false
+  await loadRaw()
+  if (!raw) return false
+  let lo = 0
+  let hi = lineCount + 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    const cur = lineAt(mid)
+    if (cur < w) lo = mid + 1
+    else hi = mid
+  }
+  return lo < lineCount && lineAt(lo) === w
+}
+
+/**
+ * 离线拼写纠正：词库中找不到该词时，在其字母序邻域用编辑距离找最接近的已知词。
+ * 返回最佳建议词；距离过大（不确信）或词库未加载则返回 null。
+ */
+export async function bestOfflineSpelling(word: string): Promise<string | null> {
+  const w = word.trim().toLowerCase()
+  if (!w) return null
+  await loadRaw()
+  if (!raw) return null
+  // 定位插入点（第一个 >= w 的行下标）
+  let lo = 0
+  let hi = lineCount + 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    const cur = lineAt(mid)
+    if (cur < w) lo = mid + 1
+    else hi = mid
+  }
+  // 在邻域滑动窗口内做编辑距离（常见的错拼通常是"几个字符级别"的差异）
+  const WINDOW = 3000
+  const start = Math.max(0, lo - WINDOW)
+  const end = Math.min(lineCount, lo + WINDOW)
+  let best: string | null = null
+  let bestDist = Infinity
+  for (let i = start; i < end; i++) {
+    const cand = lineAt(i)
+    if (cand === w) return w
+    // 长度差过大可直接跳过（编辑距离必然 >= 差）
+    if (Math.abs(cand.length - w.length) >= bestDist) continue
+    const d = levenshtein(cand, w)
+    if (d < bestDist) {
+      bestDist = d
+      best = cand
+    }
+    if (d === 1) break // 编辑距离 1 已是最优，无需再搜
+  }
+  // 置信门槛：编辑距离 <=2 且相对长度差合理
+  if (best && bestDist <= 2 && bestDist <= Math.max(1, Math.floor(w.length / 4))) {
+    return best
+  }
+  return null
 }

@@ -62,6 +62,8 @@ const bridge = {
   readFile: (filePath: string) => ipcRenderer.invoke('file:read', filePath) as Promise<Uint8Array>,
   saveFile: (opts: { defaultPath?: string; data: string; filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke('file:save', opts) as Promise<string | null>,
+  saveBuffer: (opts: { defaultPath?: string; dataB64: string; filters?: { name: string; extensions: string[] }[] }) =>
+    ipcRenderer.invoke('file:saveBuffer', opts) as Promise<string | null>,
   openFiles: () => ipcRenderer.invoke('dialog:openFiles') as Promise<string[]>,
   windowGetState: () => ipcRenderer.invoke('window:getState') as Promise<{ mode: 'mini' | 'full'; alwaysOnTop: boolean }>,
   windowSetMode: (mode: 'mini' | 'full') => ipcRenderer.send('window:setMode', mode),

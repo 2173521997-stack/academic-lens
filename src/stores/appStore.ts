@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type ViewName = 'home' | 'wordbook' | 'history' | 'settings'
+export type ViewName = 'home' | 'agent' | 'wordbook' | 'flashcard' | 'quotes' | 'stats' | 'history' | 'settings'
 
 interface AppState {
   view: ViewName

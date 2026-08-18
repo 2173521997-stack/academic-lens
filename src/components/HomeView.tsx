@@ -4,6 +4,7 @@ import { useFileStore } from '../stores/fileStore'
 import { isSupported } from '../lib/types'
 import { parseAnyFile, makeSegment } from '../lib/parse'
 import { recognizeClipboardImage, fileToDataUrl } from '../lib/ocr'
+import { toast } from '../stores/noticeStore'
 import FileView from './FileView'
 import TextTranslateView from './TextTranslateView'
 import ImageZoneView from './ImageZoneView'
@@ -27,13 +28,17 @@ export default function HomeView(): React.JSX.Element {
       const preview = await fileToDataUrl(file, 480)
       const { lines } = await recognizeClipboardImage(file)
       setImgTask({ preview, lines, name, error: null })
+      if (lines.length) toast('success', `已识别 ${lines.length} 行，可一键翻译`, '图片 OCR')
+      else toast('warning', '未识别到文字，请换一张更清晰的图', '图片 OCR')
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
       setImgTask({
         preview: '',
         lines: [],
         name,
-        error: err instanceof Error ? err.message : String(err)
+        error: msg
       })
+      toast('danger', msg, '图片 OCR 失败')
     } finally {
       setOcrBusy(false)
     }

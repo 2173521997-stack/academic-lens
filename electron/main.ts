@@ -215,6 +215,18 @@ function registerIpc(): void {
     return picked.filePath
   })
 
+  // 保存二进制文件（如 DOCX 导出）：data 为 base64
+  ipcMain.handle('file:saveBuffer', async (e, opts: { defaultPath?: string; dataB64: string; filters?: { name: string; extensions: string[] }[] }) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? undefined
+    const picked = await dialog.showSaveDialog(win as BrowserWindow, {
+      defaultPath: opts.defaultPath,
+      filters: opts.filters ?? [{ name: '文档', extensions: ['docx'] }]
+    })
+    if (picked.canceled || !picked.filePath) return null
+    await fs.promises.writeFile(picked.filePath, Buffer.from(opts.dataB64, 'base64'))
+    return picked.filePath
+  })
+
   ipcMain.handle('dialog:openFiles', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender) ?? undefined
     const picked = await dialog.showOpenDialog(win as BrowserWindow, {

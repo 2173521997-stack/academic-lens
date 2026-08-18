@@ -1,4 +1,4 @@
-import { PanelTopClose, ArrowLeft, BookOpen, History, Settings } from 'lucide-react'
+import { PanelTopClose, ArrowLeft, BookOpen, History, Settings, Layers, Quote, BarChart3, Bot } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import { useWindowStore } from '../stores/windowStore'
 
@@ -38,12 +38,44 @@ export default function TitleBar(): React.JSX.Element {
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <button
+          className={`${iconBtn} ${view === 'agent' ? '!bg-accent-soft !text-accent' : ''}`}
+          onClick={() => go(view === 'agent' ? 'home' : 'agent')}
+          title="智能体（GLM-4-flash）"
+        >
+          <Bot size={13} />
+          <span className="hidden sm:inline">智能体</span>
+        </button>
+        <button
           className={`${iconBtn} ${view === 'wordbook' ? '!bg-accent-soft !text-accent' : ''}`}
           onClick={() => go(view === 'wordbook' ? 'home' : 'wordbook')}
           title="生词本"
         >
           <BookOpen size={13} />
           <span className="hidden sm:inline">生词本</span>
+        </button>
+        <button
+          className={`${iconBtn} ${view === 'flashcard' ? '!bg-accent-soft !text-accent' : ''}`}
+          onClick={() => go(view === 'flashcard' ? 'home' : 'flashcard')}
+          title="闪卡抽词"
+        >
+          <Layers size={13} />
+          <span className="hidden sm:inline">闪卡</span>
+        </button>
+        <button
+          className={`${iconBtn} ${view === 'quotes' ? '!bg-accent-soft !text-accent' : ''}`}
+          onClick={() => go(view === 'quotes' ? 'home' : 'quotes')}
+          title="美人美言"
+        >
+          <Quote size={13} />
+          <span className="hidden sm:inline">美言</span>
+        </button>
+        <button
+          className={`${iconBtn} ${view === 'stats' ? '!bg-accent-soft !text-accent' : ''}`}
+          onClick={() => go(view === 'stats' ? 'home' : 'stats')}
+          title="学习统计"
+        >
+          <BarChart3 size={13} />
+          <span className="hidden sm:inline">统计</span>
         </button>
         <button
           className={`${iconBtn} ${view === 'history' ? '!bg-accent-soft !text-accent' : ''}`}

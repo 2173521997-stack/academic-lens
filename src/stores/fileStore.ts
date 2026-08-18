@@ -4,6 +4,7 @@ import { llmStream, llmJSON, type StreamCall } from '../lib/llm'
 import { getCachedTranslation, setCachedTranslation } from '../lib/translationCache'
 import { useSettingsStore } from './settingsStore'
 import { useHistoryStore } from './historyStore'
+import { buildTranslateSys, buildBatchSys, buildTableSys } from '../lib/prompt'
 
 /** 文档视图模式：中文译文（逐段对照）/ 总结 */
 export type DocMode = 'cn' | 'summary'
@@ -30,14 +31,6 @@ interface FileState {
 
   clearSummary: () => void
 }
-
-const SYS_TRANSLATE =
-  '你是专业学术翻译。将用户提供的英文内容翻译为简体中文，保持学术语气、术语准确、长难句拆分通顺。只输出译文，不要任何解释或前缀。'
-
-const SYS_BATCH =
-  '你是专业学术翻译。将用户提供的英文段落批量翻译为简体中文，保持学术语气、术语准确、长难句拆分通顺。' +
-  '输入以 [1] [2] … 编号，你只输出一个 JSON 对象：键为编号字符串（如 "1"、"2"），值为对应译文。' +
-  '不要输出任何其他内容，不要用 Markdown 代码块包裹。'
 
 const SYS_SUMMARY =
   '你是学术论文分析助手。基于用户提供的论文内容，用 Markdown 输出以下四部分：\n' +
@@ -104,6 +97,9 @@ export const useFileStore = create<FileState>((set, get) => {
   const bumpProgress = (total: number): void =>
     set({ progress: { done: get().progress.done + 1, total } })
 
+  /** 构造单段翻译系统提示：表格走表格专用提示词，其余走通用（含领域/术语注入） */
+  const sysFor = (seg: Segment): string => (seg.type === 'table' ? buildTableSys() : buildTranslateSys())
+
   /** 单段流式翻译（长段 / 批量回退 / 单段重试共用） */
   const streamOne = (seg: Segment, model: string): Promise<void> =>
     new Promise((resolve) => {
@@ -112,7 +108,7 @@ export const useFileStore = create<FileState>((set, get) => {
       let acc = seg.translation || ''
       const call = llmStream(
         [
-          { role: 'system', content: SYS_TRANSLATE },
+          { role: 'system', content: sysFor(seg) },
           { role: 'user', content: buildParagraphTranslatePrompt([seg]) }
         ],
         {
@@ -179,7 +175,7 @@ export const useFileStore = create<FileState>((set, get) => {
       const prompt = batch.map((s, j) => `[${j + 1}] ${s.text}`).join('\n\n')
       const call = llmJSON(
         [
-          { role: 'system', content: SYS_BATCH },
+          { role: 'system', content: buildBatchSys() },
           { role: 'user', content: prompt }
         ],
         { maxTokens: 8192, temperature: 0.3 }
@@ -242,12 +238,15 @@ export const useFileStore = create<FileState>((set, get) => {
     const pending = get()
       .segments.filter((s) => !s.translation && !s.translating)
       .filter((s) => segs.some((x) => x.id === s.id))
-    const shortList = pending.filter((s) => s.text.length <= LONG_SEG_LIMIT)
-    const longList = pending.filter((s) => s.text.length > LONG_SEG_LIMIT)
+    // 表格：独立走单段流式 + 表格专用提示词（保持行列），不并入批量
+    const tableList = pending.filter((s) => s.type === 'table')
+    const nonTable = pending.filter((s) => s.type !== 'table')
+    const shortList = nonTable.filter((s) => s.text.length <= LONG_SEG_LIMIT)
+    const longList = nonTable.filter((s) => s.text.length > LONG_SEG_LIMIT)
 
     await runBatches(shortList, model)
     if (!translateActive) return
-    await runPump(longList, model)
+    await runPump([...tableList, ...longList], model)
 
     const { segments } = get()
     const doneCount = segments.filter((s) => s.translation || s.error).length
@@ -255,7 +254,18 @@ export const useFileStore = create<FileState>((set, get) => {
       set({ error: `${failed} 段翻译失败（请检查 API Key 与网络后重试）` })
     } else if (doneCount === segments.length) {
       set({ error: null })
-      useHistoryStore.getState().add('translate', get().doc?.name ?? '', `完成 ${doneCount} 段翻译`)
+      const name = get().doc?.name ?? ''
+      const translated = segments.filter((s) => s.translation)
+      useHistoryStore.getState().add('translate', name, `完成 ${doneCount} 段翻译`)
+      // 全部译完才把原文+译文全文存档（独立 cap 存储，供历史还原与智能体检索）
+      if (translated.length === segments.length && translated.length > 0) {
+        useHistoryStore.getState().saveDocResult(
+          name,
+          translated.map((s) => s.text).join('\n\n'),
+          translated.map((s) => s.translation).join('\n\n'),
+          translated.length
+        )
+      }
     }
   }
 
@@ -327,7 +337,7 @@ export const useFileStore = create<FileState>((set, get) => {
         let acc = ''
         const call = llmStream(
           [
-            { role: 'system', content: SYS_TRANSLATE },
+            { role: 'system', content: sysFor(fresh) },
             { role: 'user', content: buildParagraphTranslatePrompt([fresh]) }
           ],
           {
@@ -365,7 +375,8 @@ export const useFileStore = create<FileState>((set, get) => {
           onDone: () => {
             summaryCall = null
             set({ summaryState: 'done' })
-            useHistoryStore.getState().add('summary', get().doc?.name ?? '', '摘要已生成')
+            // 摘要全文存入历史 payload，便于历史还原与智能体检索
+            useHistoryStore.getState().add('summary', get().doc?.name ?? '', '摘要已生成', get().summary)
           },
           onError: (m) => {
             summaryCall = null

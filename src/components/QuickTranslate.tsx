@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus, BookmarkCheck } from 'lucide-react'
+import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus, BookmarkCheck, SearchX } from 'lucide-react'
 import { quickTranslate, loadRecents, clearRecents, isCn, isCnWord, type QuickMode, type QuickRecent } from '../lib/quickTranslate'
 import { useFileStore } from '../stores/fileStore'
 import { useWindowStore } from '../stores/windowStore'
@@ -16,6 +16,8 @@ export default function QuickTranslate(): React.JSX.Element {
   const [mode, setMode] = useState<QuickMode>('translate')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState<string | null>(null)
+  const [suggestion, setSuggestion] = useState<string | null>(null)
   const [recents, setRecents] = useState<QuickRecent[]>([])
   const [copied, setCopied] = useState(false)
   const [opening, setOpening] = useState(false)
@@ -44,6 +46,8 @@ export default function QuickTranslate(): React.JSX.Element {
       setMode('word')
       setResult('')
       setError(null)
+      setNotFound(null)
+      setSuggestion(null)
       inputRef.current?.focus()
       inputRef.current?.select()
     })
@@ -71,7 +75,7 @@ export default function QuickTranslate(): React.JSX.Element {
   }, [input])
 
   const run = useCallback(
-    (text: string, explicitMode?: QuickMode): void => {
+    (text: string, explicitMode?: QuickMode, forceLlm = false): void => {
       const t = text.trim()
       const m = explicitMode ?? mode
       if (!t || streamingRef.current) return
@@ -80,6 +84,8 @@ export default function QuickTranslate(): React.JSX.Element {
       streamingRef.current = true
       setStreaming(true)
       setError(null)
+      setNotFound(null)
+      setSuggestion(null)
       setResult('')
       cancelRef.current = quickTranslate(
         t,
@@ -92,12 +98,20 @@ export default function QuickTranslate(): React.JSX.Element {
             // 新记录立即出现在历史顶部
             void loadRecents().then(setRecents)
           },
+          onNotFound: (word) => {
+            streamingRef.current = false
+            setStreaming(false)
+            setResult('')
+            setNotFound(word)
+          },
+          onSuggestion: (s) => setSuggestion(s),
           onError: (err) => {
             streamingRef.current = false
             setError(err)
             setStreaming(false)
           }
-        }
+        },
+        { forceLlm }
       ).cancel
     },
     [mode]
@@ -128,6 +142,7 @@ export default function QuickTranslate(): React.JSX.Element {
       setMode('word')
       setResult('')
       setError(null)
+      setNotFound(null)
       setInput(t)
       run(t, isWord ? 'word' : 'translate')
     })
@@ -204,7 +219,7 @@ export default function QuickTranslate(): React.JSX.Element {
           <button className="btn btn-ghost !p-1.5" onClick={() => void openFile()} title="打开文档翻译">
             {opening ? <Loader2 size={14} className="animate-spin" /> : <FolderOpen size={14} />}
           </button>
-          <button className="btn btn-ghost !p-1.5" onClick={() => { setInput(''); setResult(''); setError(null); inputRef.current?.focus() }} title="清空">
+          <button className="btn btn-ghost !p-1.5" onClick={() => { setInput(''); setResult(''); setError(null); setNotFound(null); setSuggestion(null); inputRef.current?.focus() }} title="清空">
             <Eraser size={14} />
           </button>
         </div>
@@ -269,6 +284,54 @@ export default function QuickTranslate(): React.JSX.Element {
         {error && (
           <div className="mb-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</div>
         )}
+        {suggestion && !streaming && (
+          <div className="card animate-float-in mb-2 !rounded-xl border border-accent/30 bg-accent-soft/40 p-3">
+            <p className="text-[12px] leading-relaxed text-ink-1">
+              你输入的可能是
+              <button
+                className="mx-1.5 inline-flex items-center rounded-md bg-accent px-2 py-0.5 text-[12px] font-semibold text-white transition hover:opacity-90"
+                onClick={() => pickSuggestion(suggestion)}
+              >
+                {suggestion}
+              </button>
+              （点击即按此拼写查询）
+            </p>
+          </div>
+        )}
+        {notFound && !streaming && (
+          <div className="card animate-float-in mb-2 !rounded-xl border border-ink-3/20 p-3.5">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink-3/10 text-ink-3">
+                <SearchX size={14} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-ink-1">
+                  没有找到「{notFound}」
+                </p>
+                <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
+                  词典里没有收录这个词，可能是拼写有误或属于专有名词 / 生僻词。
+                  <br />
+                  试试下面的方式：
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <button
+                    className="btn btn-ghost !px-2 !py-1 text-[11px]"
+                    onClick={() => run(input.trim(), 'word', true)}
+                    title="跳过词典，直接用 AI 查词"
+                  >
+                    改用 AI 查词
+                  </button>
+                  <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={() => window.bridge.speak(notFound)}>
+                    <Volume2 size={11} /> 朗读拼写
+                  </button>
+                </div>
+                <p className="mt-2 text-[10px] text-ink-3">
+                  提示：若确定拼写无误，可在设置中将查词方式切换为「AI 查词」，或直接按上方按钮用 AI 查询。
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {streaming && (
           <div className="mb-1 flex items-center gap-2 text-[11px] text-ink-3">
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent border-t-transparent" />
@@ -279,7 +342,14 @@ export default function QuickTranslate(): React.JSX.Element {
         {wordCard ? (
           <WordCard
             entry={wordCard}
-            onSpeak={() => window.bridge.speak(wordCard.word)}
+            onSpeak={() => {
+              if (wordCard.audio) {
+                const a = new Audio(wordCard.audio)
+                void a.play().catch(() => window.bridge.speak(wordCard.word))
+              } else {
+                window.bridge.speak(wordCard.word)
+              }
+            }}
             onCopy={() => {
               window.bridge.copyText(`${wordCard.word} ${wordCard.phonetic} ${wordCard.pos} ${wordCard.def}`)
               setCopied(true)
@@ -290,6 +360,7 @@ export default function QuickTranslate(): React.JSX.Element {
               addWord({
                 word: wordCard.word,
                 definition: `${wordCard.pos} ${wordCard.def}`,
+                pos: wordCard.pos,
                 context: wordCard.exs[0]?.en ?? ''
               })
             }}
@@ -382,6 +453,7 @@ export default function QuickTranslate(): React.JSX.Element {
                               addWord({
                                 word: card.word || word,
                                 definition: `${card.pos} ${card.def}`.trim(),
+                                pos: card.pos,
                                 context: card.exs.map((x) => `${x.en}（${x.zh}）`).join('；') || undefined
                               })
                               return
@@ -459,6 +531,11 @@ function WordCard(props: {
           <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-2">
             {w.phonetic && <span>{w.phonetic}</span>}
             {w.pos && <span className="chip">{w.pos}</span>}
+            {w.source === 'uapis' ? (
+              <span className="chip !bg-ok/10 !text-ok" title="来自免费词典 API（Grounding 层真实数据）">词典</span>
+            ) : (
+              <span className="chip !bg-ink-3/10 !text-ink-3" title="由 AI 生成，仅供参考">AI</span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-0.5">

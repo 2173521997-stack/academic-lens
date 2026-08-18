@@ -49,13 +49,13 @@ export function batchedChunks(handlers: StreamHandlers, delay = 80): StreamHandl
 export function llmStream(
   messages: LLMMessage[],
   handlers: StreamHandlers,
-  opts?: { temperature?: number; maxTokens?: number }
+  opts?: { temperature?: number; maxTokens?: number; contextLength?: number }
 ): StreamCall {
   const id = `req_${Date.now()}_${++seq}`
   const { settings } = useSettingsStore.getState()
   window.bridge.llmStream(
     id,
-    { baseUrl: settings.baseUrl, apiKey: settings.apiKey, model: settings.model, messages, temperature: opts?.temperature, maxTokens: opts?.maxTokens },
+    { baseUrl: settings.baseUrl, apiKey: settings.apiKey, model: settings.model, messages, temperature: opts?.temperature, maxTokens: opts?.maxTokens, contextLength: opts?.contextLength },
     batchedChunks(handlers)
   )
   return {
@@ -98,7 +98,7 @@ export interface JSONCall {
 /** 非流式请求（批量翻译 JSON 模式）：返回 promise + cancel，可被停止翻译取消 */
 export function llmJSON(
   messages: LLMMessage[],
-  opts?: { temperature?: number; maxTokens?: number }
+  opts?: { temperature?: number; maxTokens?: number; contextLength?: number }
 ): JSONCall {
   const id = `req_${Date.now()}_${++seq}`
   const { settings } = useSettingsStore.getState()
@@ -114,7 +114,7 @@ export function llmJSON(
     }, 180000)
     window.bridge.llmComplete(
       id,
-      { baseUrl: settings.baseUrl, apiKey: settings.apiKey, model: settings.model, messages, temperature: opts?.temperature, maxTokens: opts?.maxTokens, json: true },
+      { baseUrl: settings.baseUrl, apiKey: settings.apiKey, model: settings.model, messages, temperature: opts?.temperature, maxTokens: opts?.maxTokens, contextLength: opts?.contextLength, json: true },
       {
         onDone: (content) => {
           if (!settled) {
@@ -136,6 +136,80 @@ export function llmJSON(
 
   return {
     promise,
+    cancel: () => window.bridge.llmCancel(id)
+  }
+}
+
+/* ---------------- 智能体独立调用（GLM-4-flash 免费 API） ---------------- */
+
+/** 基于智能体专属配置（baseUrl/apiKey/model）的非流式请求。用于意图解析等轻量任务。 */
+export function agentComplete(
+  messages: LLMMessage[],
+  opts?: { temperature?: number; maxTokens?: number; json?: boolean; contextLength?: number }
+): JSONCall {
+  const id = `agent_${Date.now()}_${++seq}`
+  const { settings } = useSettingsStore.getState()
+  const baseUrl = settings.agentBaseUrl || settings.baseUrl
+  const apiKey = settings.agentApiKey || settings.apiKey
+  const model = settings.agentModel || settings.model
+  // 扩大多轮可见上下文：agent 路径默认声明大 context_length（GLM-4-flash 等兼容端点支持）
+  const contextLength = opts?.contextLength ?? 65536
+  let settled = false
+
+  const promise = new Promise<string>((resolve, reject) => {
+    const t = setTimeout(() => {
+      window.bridge.llmCancel(id)
+      if (!settled) {
+        settled = true
+        reject(new Error('智能体请求超时（60s）'))
+      }
+    }, 60000)
+    window.bridge.llmComplete(
+      id,
+      { baseUrl, apiKey, model, messages, temperature: opts?.temperature, maxTokens: opts?.maxTokens, contextLength, json: opts?.json },
+      {
+        onDone: (content) => {
+          if (!settled) {
+            settled = true
+            clearTimeout(t)
+            resolve(content)
+          }
+        },
+        onError: (m) => {
+          if (!settled) {
+            settled = true
+            clearTimeout(t)
+            reject(new Error(m))
+          }
+        }
+      }
+    )
+  })
+
+  return {
+    promise,
+    cancel: () => window.bridge.llmCancel(id)
+  }
+}
+
+/** 智能体流式对话（供 Agent 页展示思考过程） */
+export function agentStream(
+  messages: LLMMessage[],
+  handlers: StreamHandlers,
+  opts?: { temperature?: number; maxTokens?: number; contextLength?: number }
+): StreamCall {
+  const id = `agent_${Date.now()}_${++seq}`
+  const { settings } = useSettingsStore.getState()
+  const baseUrl = settings.agentBaseUrl || settings.baseUrl
+  const apiKey = settings.agentApiKey || settings.apiKey
+  const model = settings.agentModel || settings.model
+  const contextLength = opts?.contextLength ?? 65536
+  window.bridge.llmStream(
+    id,
+    { baseUrl, apiKey, model, messages, temperature: opts?.temperature, maxTokens: opts?.maxTokens, contextLength },
+    batchedChunks(handlers)
+  )
+  return {
     cancel: () => window.bridge.llmCancel(id)
   }
 }

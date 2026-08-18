@@ -20,6 +20,20 @@ export const PROVIDERS: Record<string, ProviderPreset> = {
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
+/** 查词双轨：uapis 词典优先（自动回退 LLM） / 仅 LLM */
+export type LookupSource = 'dict' | 'llm'
+
+/** 领域/风格翻译预设：切换翻译提示词模板的措辞倾向 */
+export type DomainPreset = 'general' | 'cs' | 'bio' | 'news' | 'academic'
+
+export const DOMAIN_PRESETS: Record<DomainPreset, string> = {
+  general: '普通阅读，通用与准确并重。',
+  cs: '计算机/算法领域论文，术语采用 CS 领域通行译法，代码与标识符保持英文不译。',
+  bio: '生物/医学领域课件，专业名词采用教科书标准译法，保留拉丁学名。',
+  news: '新闻/时政类文稿，翻译自然流畅，保留专有名词原样。',
+  academic: '学术论文/SSCI 摘要，风格严谨书面，适合投稿润色。'
+}
+
 export interface Settings {
   provider: string
   baseUrl: string
@@ -27,6 +41,18 @@ export interface Settings {
   model: string
   theme: ThemeMode
   ocrLang: 'eng' | 'chi_sim' | 'eng+chi_sim'
+  /** 智能体（GLM-4-flash 免费 API）独立配置 */
+  agentBaseUrl: string
+  agentApiKey: string
+  agentModel: string
+  /** 词典 API（uapis.cn）key；为空则查词仅走 LLM */
+  dictApiKey: string
+  /** 查询方式双轨：dict = uapis 优先（失败回退 LLM），llm = 仅 LLM */
+  lookupSource: LookupSource
+  /** 翻译领域/风格预设 */
+  domain: DomainPreset
+  /** 是否把生词本作为术语注入翻译系统提示，保证术语译法统一 */
+  injectTerms: boolean
 }
 
 interface SettingsState {
@@ -43,7 +69,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     apiKey: '',
     model: PROVIDERS.deepseek.model,
     theme: 'system',
-    ocrLang: 'eng+chi_sim'
+    ocrLang: 'eng+chi_sim',
+    // 智谱开放平台 GLM-4-flash 免费模型
+    agentBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    agentApiKey: '',
+    agentModel: 'glm-4-flash',
+    dictApiKey: '',
+    lookupSource: 'dict',
+    domain: 'general',
+    injectTerms: true
   },
   loaded: false,
 

@@ -17,6 +17,8 @@ export interface LLMRequest {
   messages: LLMMessage[]
   temperature?: number
   maxTokens?: number
+  /** 输入上下文长度上限（OpenAI 兼容端点透传 context_length），用于扩大多轮可见窗口 */
+  contextLength?: number
   json?: boolean
 }
 
@@ -37,6 +39,7 @@ export interface Bridge {
   storeSet: (key: string, value: unknown) => Promise<boolean>
   readFile: (filePath: string) => Promise<Uint8Array>
   saveFile: (opts: { defaultPath?: string; data: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
+  saveBuffer: (opts: { defaultPath?: string; dataB64: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
   openFiles: () => Promise<string[]>
   windowGetState: () => Promise<{ mode: 'mini' | 'full'; alwaysOnTop: boolean }>
   windowSetMode: (mode: 'mini' | 'full') => void

@@ -1,21 +1,25 @@
 import { useEffect, useState } from 'react'
-import { Sparkles } from 'lucide-react'
 import { useAppStore } from './stores/appStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useWordbookStore } from './stores/wordbookStore'
 import { useHistoryStore } from './stores/historyStore'
 import { useWindowStore } from './stores/windowStore'
 import { useFileStore } from './stores/fileStore'
+import { useProfileStore } from './stores/profileStore'
 import { parseAnyFile } from './lib/parse'
 import { isSupported } from './lib/types'
 import TitleBar from './components/TitleBar'
 import HomeView from './components/HomeView'
+import AgentView from './components/AgentView'
 import WordbookView from './components/WordbookView'
+import FlashcardView from './components/FlashcardView'
+import QuoteView from './components/QuoteView'
+import StatsView from './components/StatsView'
 import HistoryView from './components/HistoryView'
 import SettingsView from './components/SettingsView'
-import AssistantPanel from './components/AssistantPanel'
 import MiniTitleBar from './components/MiniTitleBar'
 import QuickTranslate from './components/QuickTranslate'
+import NoticeView from './components/NoticeView'
 
 function applyTheme(): void {
   const { theme } = useSettingsStore.getState().settings
@@ -42,7 +46,6 @@ async function openDroppedFile(filePath: string): Promise<void> {
 
 export default function App(): React.JSX.Element {
   const view = useAppStore((s) => s.view)
-  const assistantOpen = useAppStore((s) => s.assistantOpen)
   const mode = useWindowStore((s) => s.mode)
   const [fullscreen, setFullscreen] = useState(false)
 
@@ -51,6 +54,7 @@ export default function App(): React.JSX.Element {
       await useSettingsStore.getState().load()
       await useWordbookStore.getState().load()
       await useHistoryStore.getState().load()
+      await useProfileStore.getState().load()
       await useWindowStore.getState().init()
       const info = await window.bridge.appInfo()
       useAppStore.getState().setPlatform(info.platform, info.isMac)
@@ -85,6 +89,7 @@ export default function App(): React.JSX.Element {
       <div className={`mini-window ${rootCls}`}>
         <MiniTitleBar />
         <QuickTranslate />
+        <NoticeView />
       </div>
     )
   }
@@ -95,22 +100,16 @@ export default function App(): React.JSX.Element {
       <div className="relative flex min-h-0 flex-1">
         <main className="min-w-0 flex-1 overflow-hidden">
           {view === 'home' && <HomeView />}
+          {view === 'agent' && <AgentView />}
           {view === 'wordbook' && <WordbookView />}
+          {view === 'flashcard' && <FlashcardView />}
+          {view === 'quotes' && <QuoteView />}
+          {view === 'stats' && <StatsView />}
           {view === 'history' && <HistoryView />}
           {view === 'settings' && <SettingsView />}
         </main>
-        {assistantOpen ? (
-          <AssistantPanel />
-        ) : (
-          <button
-            className="absolute right-0 top-1/2 z-30 flex -translate-y-1/2 items-center gap-1.5 rounded-l-full border border-r-0 border-line bg-panel/95 py-2.5 pl-3 pr-2 text-[12px] font-medium text-accent shadow-md backdrop-blur transition hover:bg-accent hover:text-white"
-            onClick={() => useAppStore.getState().setAssistant(true)}
-            title="展开 AI 学术助手"
-          >
-            <Sparkles size={13} /> AI
-          </button>
-        )}
       </div>
+      <NoticeView />
     </div>
   )
 }

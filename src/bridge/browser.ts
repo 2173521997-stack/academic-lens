@@ -41,7 +41,8 @@ function sseStream(req: LLMRequest, handlers: {
           messages: req.messages,
           stream: true,
           temperature: req.temperature ?? 0.4,
-          ...(req.maxTokens ? { max_tokens: req.maxTokens } : {})
+          ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+          ...(req.contextLength ? { context_length: req.contextLength } : {})
         }),
         signal: ctrl.signal
       })
@@ -105,6 +106,7 @@ export function createBrowserBridge(): Bridge {
       throw new Error('浏览器模式不支持直接读取文件，请使用 Electron 应用')
     },
     saveFile: async () => null,
+    saveBuffer: async () => null,
     openFiles: async () => [],
     windowGetState: async () => ({ mode: 'full' as const, alwaysOnTop: false }),
     windowSetMode: noop,
@@ -154,6 +156,7 @@ export function createBrowserBridge(): Bridge {
               stream: false,
               temperature: req.temperature ?? 0.4,
               ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+              ...(req.contextLength ? { context_length: req.contextLength } : {}),
               ...(req.json ? { response_format: { type: 'json_object' } } : {})
             }),
             signal: ctrl.signal

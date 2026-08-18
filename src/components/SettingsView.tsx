@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Eye, EyeOff, ExternalLink, Zap, CheckCircle2, XCircle, Keyboard, RefreshCw, ShieldCheck } from 'lucide-react'
-import { PROVIDERS, useSettingsStore, type ThemeMode } from '../stores/settingsStore'
+import { Eye, EyeOff, ExternalLink, Zap, CheckCircle2, XCircle, Keyboard, RefreshCw, ShieldCheck, Bot, BookOpen, Rocket, BadgeCheck, Sparkles, User } from 'lucide-react'
+import { PROVIDERS, DOMAIN_PRESETS, type DomainPreset, useSettingsStore, type ThemeMode } from '../stores/settingsStore'
 import { useAppStore } from '../stores/appStore'
-import { llmChat } from '../lib/llm'
+import { refreshAgentAvailability } from '../stores/agentStore'
+import { useProfileStore } from '../stores/profileStore'
+import { llmChat, agentComplete } from '../lib/llm'
 
 const THEMES: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: '跟随系统' },
@@ -19,6 +21,34 @@ function StatusChip({ ok, text }: { ok: boolean; text: string }): React.JSX.Elem
   )
 }
 
+function OnboardStep({ done, title, desc, icon }: { done: boolean; title: string; desc: string; icon: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className={`flex items-center gap-3 rounded-xl border p-3 ${done ? 'border-ok/30 bg-ok/5' : 'border-line bg-surface'}`}>
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${done ? 'bg-ok/15 text-ok' : 'bg-accent-soft text-accent'}`}>
+        {done ? <CheckCircle2 size={15} /> : icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-[12px] font-semibold">{title}</p>
+        <p className="truncate text-[11px] text-ink-3">{desc}</p>
+      </div>
+    </div>
+  )
+}
+
+function ToggleRow({ label, desc, checked, onChange }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void }): React.JSX.Element {
+  return (
+    <button type="button" onClick={() => onChange(!checked)} className="flex w-full items-start justify-between gap-3 text-left">
+      <span>
+        <span className="block text-[12px] font-medium">{label}</span>
+        <span className="block text-[11px] text-ink-3">{desc}</span>
+      </span>
+      <span className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${checked ? 'justify-end bg-accent' : 'justify-start bg-line-strong'}`}>
+        <span className="h-4 w-4 rounded-full bg-white shadow" />
+      </span>
+    </button>
+  )
+}
+
 export default function SettingsView(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const update = useSettingsStore((s) => s.update)
@@ -31,7 +61,23 @@ export default function SettingsView(): React.JSX.Element {
   const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean } | null>(null)
   const [axTrusted, setAxTrusted] = useState<boolean | null>(null)
 
+  // 个人化档案 + 可信度开关
+  const onboarded = useProfileStore((s) => s.onboarded)
+  const profile = useProfileStore((s) => s.profile)
+  const trust = useProfileStore((s) => s.trust)
+  const updateProfile = useProfileStore((s) => s.updateProfile)
+  const updateTrust = useProfileStore((s) => s.updateTrust)
+  const setOnboarded = useProfileStore((s) => s.setOnboarded)
+
+  const stepsDone = {
+    translate: Boolean(settings.apiKey),
+    agent: Boolean(settings.agentApiKey),
+    dict: Boolean(settings.dictApiKey)
+  }
+  const doneCount = [stepsDone.translate, stepsDone.agent, stepsDone.dict].filter(Boolean).length
+
   useEffect(() => {
+    void useProfileStore.getState().load()
     void window.bridge.shortcutGetStatus().then(setShortcutState)
     const offStatus = window.bridge.onShortcutStatus(setShortcutState)
     if (isMac) void window.bridge.accessibilityGet().then(({ trusted }) => setAxTrusted(trusted))
@@ -58,13 +104,130 @@ export default function SettingsView(): React.JSX.Element {
     }
   }
 
+  // 智能体（低配 GLM）独立连通测试
+  const [agentTesting, setAgentTesting] = useState(false)
+  const [agentTestResult, setAgentTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const testAgentConnection = async (): Promise<void> => {
+    setAgentTesting(true)
+    setAgentTestResult(null)
+    try {
+      const call = agentComplete(
+        [
+          { role: 'system', content: '你是一个连通性测试助手。' },
+          { role: 'user', content: '只回复"连接成功"四个字。' }
+        ],
+        { maxTokens: 20, temperature: 0 }
+      )
+      const r = await call.promise
+      setAgentTestResult({ ok: true, msg: r.trim().slice(0, 60) })
+    } catch (err) {
+      setAgentTestResult({ ok: false, msg: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setAgentTesting(false)
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-2xl space-y-6 p-6">
         <h1 className="text-[17px] font-semibold">设置</h1>
 
+        {!onboarded && (
+          <section className="card space-y-3 border-accent/30 !bg-accent/5 p-5">
+            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
+              <Rocket size={14} className="text-accent" /> 快速开始 · {doneCount}/3 已配置
+            </h2>
+            <p className="text-[11px] leading-relaxed text-ink-3">
+              三步即可让「翻译 + 智能助手 + 查词」全部可用。任一填上 Key 即可开始，可随时回来补全。
+            </p>
+            <div className="grid gap-2">
+              <OnboardStep
+                done={stepsDone.translate}
+                title="① 翻译 / 重型任务"
+                desc="关键，做文档 / 文本 / 图片翻译，例如 DeepSeek (免费额度)"
+                icon={<Zap size={12} />}
+              />
+              <OnboardStep
+                done={stepsDone.agent}
+                title="② 智能助手"
+                desc="免费 GLM-4-flash，指挥它帮你做事 / 复习 / 设目标"
+                icon={<Sparkles size={12} />}
+              />
+              <OnboardStep
+                done={stepsDone.dict}
+                title="③ 词典查词 & 发音"
+                desc="免费 uapis，查词带真实音标与发音，无幻觉"
+                icon={<BookOpen size={12} />}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-ink-3">全部配置后点「我已完成」开始使用。</p>
+              <button className="btn btn-primary !px-4 !py-2 text-[12px]" disabled={doneCount < 3} onClick={() => setOnboarded(true)}>
+                我已完成
+              </button>
+            </div>
+          </section>
+        )}
+
+        {onboarded && (
+          <section className="card space-y-3 p-5">
+            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+              <User size={14} className="text-accent" /> 个性化档案
+            </h2>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-[11px] font-medium text-ink-2">
+                学习目标
+                <input
+                  className="input mt-1"
+                  value={profile.goal}
+                  onChange={(e) => updateProfile({ goal: e.target.value })}
+                  placeholder="如：通过六级 / 读懂顶会论文"
+                />
+              </label>
+              <label className="text-[11px] font-medium text-ink-2">
+                当前水平
+                <input
+                  className="input mt-1"
+                  value={profile.level}
+                  onChange={(e) => updateProfile({ level: e.target.value })}
+                  placeholder="如：四级 / IELTS 6"
+                />
+              </label>
+            </div>
+            <p className="text-[11px] leading-relaxed text-ink-3">
+              智能体会在对话中参考这些信息，给出更贴合你的建议。
+            </p>
+          </section>
+        )}
+
+        <section className="card space-y-3 p-5">
+          <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+            <BadgeCheck size={14} className="text-accent" /> 可信度
+          </h2>
+          <ToggleRow
+            label="AI 生成内容标注"
+            desc="在摘要 / 周报 / 批改等 AI 输出后附「AI 生成」标识，强调属机器生成"
+            checked={trust.aiWatermark}
+            onChange={(v) => updateTrust({ aiWatermark: v })}
+          />
+          <ToggleRow
+            label="关键结论附带来源"
+            desc="涉及具体数据 / 引用的结论尽量给出原文出处或定位"
+            checked={trust.withSources}
+            onChange={(v) => updateTrust({ withSources: v })}
+          />
+          <p className="text-[11px] leading-relaxed text-ink-3">
+            查词默认走真实词典（uapis）避免幻觉；仅 AI 生产中，知识性判断会尽量区分「事实」与「推断」。
+          </p>
+        </section>
+
         <section className="card space-y-4 p-5">
-          <h2 className="text-[13px] font-semibold text-ink-2">AI 服务</h2>
+          <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+            <Zap size={14} className="text-accent" /> 翻译 / 重型任务（高配 API）
+          </h2>
+          <p className="text-[11px] leading-relaxed text-ink-3">
+            PDF/文本/图片翻译、文档总结、AI 批改等重量级生成任务统一走此处配置的模型（效果好、成本高）。
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-[12px] font-medium text-ink-2">
               服务商
@@ -142,6 +305,115 @@ export default function SettingsView(): React.JSX.Element {
         </section>
 
         <section className="card space-y-3 p-5">
+          <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+            <Bot size={14} className="text-accent" /> 智能体 / 轻量编排（低配 API）
+          </h2>
+          <p className="text-[11px] leading-relaxed text-ink-3">
+            用于跳转、盘点生词、看到期、生成周报/摘要、朗读、讲名言等轻量编排；翻译与重型任务仍走上方高配 API。
+            GLM-4-flash 免费额度见
+            <button
+              className="ml-0.5 inline-flex items-center gap-0.5 text-accent hover:underline"
+              onClick={() => void window.bridge.openExternal('https://open.bigmodel.cn/pricing')}
+            >
+              智谱开放平台 <ExternalLink size={10} />
+            </button>
+            。
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-[12px] font-medium text-ink-2">
+              Base URL
+              <input
+                className="input mt-1"
+                value={settings.agentBaseUrl}
+                onChange={(e) => update({ agentBaseUrl: e.target.value })}
+                placeholder="https://open.bigmodel.cn/api/paas/v4"
+              />
+            </label>
+            <label className="text-[12px] font-medium text-ink-2">
+              模型
+              <input
+                className="input mt-1"
+                value={settings.agentModel}
+                onChange={(e) => update({ agentModel: e.target.value })}
+                placeholder="glm-4-flash"
+              />
+            </label>
+          </div>
+          <label className="block text-[12px] font-medium text-ink-2">
+            智能体 API Key（独立于翻译 Key）
+            <div className="relative mt-1">
+              <input
+                className="input pr-10"
+                type={showKey ? 'text' : 'password'}
+                value={settings.agentApiKey}
+                onChange={(e) => {
+                  update({ agentApiKey: e.target.value })
+                  void refreshAgentAvailability()
+                }}
+                placeholder="智谱 API Key"
+                autoComplete="off"
+              />
+            </div>
+          </label>
+          <div className="flex items-center gap-3">
+            <button className="btn btn-primary" onClick={() => void testAgentConnection()} disabled={agentTesting}>
+              {agentTesting ? <Bot size={13} className="animate-pulse" /> : <Bot size={13} />}
+              {agentTesting ? '测试中…' : '测试连接'}
+            </button>
+            {agentTestResult && (
+              <span className={`flex items-center gap-1.5 text-[12px] ${agentTestResult.ok ? 'text-ok' : 'text-danger'}`}>
+                {agentTestResult.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                <span className="max-w-[380px] truncate">{agentTestResult.msg}</span>
+              </span>
+            )}
+          </div>
+        </section>
+
+        <section className="card space-y-3 p-5">
+          <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+            <BookOpen size={14} className="text-accent" /> 词典查询（uapis.cn · 免费）
+          </h2>
+          <p className="text-[11px] leading-relaxed text-ink-3">
+            用于英文查词与发音（音标、词性、中文释义、双语例句，以及英/美发音音频），数据真实无幻觉。
+            仅需一个 uapis API Key。
+            <button
+              className="ml-0.5 inline-flex items-center gap-0.5 text-accent hover:underline"
+              onClick={() => void window.bridge.openExternal('https://uapis.cn')}
+            >
+              uapis.cn 官网 <ExternalLink size={10} />
+            </button>
+          </p>
+          <label className="block text-[12px] font-medium text-ink-2">
+            uapis API Key
+            <div className="relative mt-1">
+              <input
+                className="input pr-10"
+                type={showKey ? 'text' : 'password'}
+                value={settings.dictApiKey}
+                onChange={(e) => update({ dictApiKey: e.target.value })}
+                placeholder="粘贴 uapis API Key"
+                autoComplete="off"
+              />
+            </div>
+          </label>
+          <label className="block text-[12px] font-medium text-ink-2">
+            查询方式（双轨）
+            <select
+              className="input mt-1"
+              value={settings.lookupSource}
+              onChange={(e) => update({ lookupSource: e.target.value as 'dict' | 'llm' })}
+            >
+              <option value="dict">词典优先：用 uapis（未关键词自动回退 AI）</option>
+              <option value="llm">仅 AI 查词（需配置翻译 API）</option>
+            </select>
+          </label>
+          <p className="text-[11px] leading-relaxed text-ink-3">
+            填了 Key 且选择「词典优先」时，英文单词用免费词典 API（真实数据、带发音，未收录/拼写错误会直接提示，不硬编）；
+            未填 Key 或词典查不到时自动回退到上方 AI 查词。中文查词、短语翻译仍走 AI。
+          </p>
+        </section>
+
+        <section className="card space-y-3 p-5">
           <h2 className="text-[13px] font-semibold text-ink-2">图片识别（OCR）</h2>
           <div className="flex items-center gap-2">
             <span className="chip">本地引擎</span>
@@ -178,6 +450,31 @@ export default function SettingsView(): React.JSX.Element {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="card space-y-3 p-5">
+          <h2 className="text-[13px] font-semibold text-ink-2">翻译偏好</h2>
+          <label className="block text-[12px] font-medium text-ink-2">
+            领域 / 风格预设
+            <select
+              className="input mt-1"
+              value={settings.domain}
+              onChange={(e) => update({ domain: e.target.value as DomainPreset })}
+            >
+              {Object.entries(DOMAIN_PRESETS).map(([k]) => (
+                <option key={k} value={k}>
+                  {k === 'general' ? '通用' : k === 'cs' ? '计算机论文' : k === 'bio' ? '生物医学' : k === 'news' ? '新闻时政' : '学术润色'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-[11px] leading-relaxed text-ink-3">切换翻译措辞倾向，术语用词随领域调整。</p>
+          <ToggleRow
+            label="术语一致性注入"
+            desc="把生词本的词及其释义注入翻译提示词，保证同一术语全文译法统一"
+            checked={settings.injectTerms}
+            onChange={(v) => update({ injectTerms: v })}
+          />
         </section>
 
         <section className="card space-y-3 p-5">

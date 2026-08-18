@@ -1,4 +1,5 @@
-import { History, Trash2, BookmarkPlus, BookmarkCheck } from 'lucide-react'
+import { useState } from 'react'
+import { History, Trash2, BookmarkPlus, BookmarkCheck, ChevronDown, ChevronRight, Copy } from 'lucide-react'
 import { useHistoryStore, type HistoryType } from '../stores/historyStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { loadRecents } from '../lib/quickTranslate'
@@ -20,6 +21,7 @@ export default function HistoryView(): React.JSX.Element {
   const clear = useHistoryStore((s) => s.clear)
   const words = useWordbookStore((s) => s.words)
   const addWord = useWordbookStore((s) => s.add)
+  const [openId, setOpenId] = useState<string | null>(null)
 
   /** 从搜索历史中回填词卡例句作为"搭配" */
   const collectContext = async (word: string): Promise<string | undefined> => {
@@ -71,33 +73,67 @@ export default function HistoryView(): React.JSX.Element {
             const isWord = e.type === 'translate' && WORD_RE.test(e.title.trim())
             const saved = isWord && words.some((w) => w.word.toLowerCase() === e.title.trim().toLowerCase())
             return (
-              <div key={e.id} className="card card-hover flex items-center gap-3 p-3.5">
-                <span className={`chip ${meta.cls}`}>{meta.label}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium select-text">{e.title}</p>
-                  {e.detail && <p className="truncate text-[11px] text-ink-3 select-text">{e.detail}</p>}
+              <div key={e.id} className="card card-hover flex flex-col gap-2 p-3.5">
+                <div className="flex items-center gap-3">
+                  <span className={`chip ${meta.cls}`}>{meta.label}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium select-text">{e.title}</p>
+                    {e.detail && <p className="truncate text-[11px] text-ink-3 select-text">{e.detail}</p>}
+                  </div>
+                  {isWord && (
+                    <button
+                      className={`btn btn-ghost !px-2 !py-1.5 ${saved ? 'pointer-events-none' : ''}`}
+                      title={saved ? '已在生词本' : '收藏到生词本（拼写 + 释义 + 例句搭配）'}
+                      onClick={() => void bookmark(e)}
+                    >
+                      {saved ? (
+                        <BookmarkCheck size={14} className="text-accent" />
+                      ) : (
+                        <BookmarkPlus size={14} className="text-ink-3 transition group-hover:text-accent" />
+                      )}
+                    </button>
+                  )}
+                  <span className="shrink-0 text-[11px] text-ink-3">
+                    {new Date(e.time).toLocaleString('zh-CN', {
+                      month: 'numeric',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </span>
                 </div>
-                {isWord && (
-                  <button
-                    className={`btn btn-ghost !px-2 !py-1.5 ${saved ? 'pointer-events-none' : ''}`}
-                    title={saved ? '已在生词本' : '收藏到生词本（拼写 + 释义 + 例句搭配）'}
-                    onClick={() => void bookmark(e)}
-                  >
-                    {saved ? (
-                      <BookmarkCheck size={14} className="text-accent" />
-                    ) : (
-                      <BookmarkPlus size={14} className="text-ink-3 transition group-hover:text-accent" />
-                    )}
-                  </button>
+                {(e.payload || e.type === 'translate') && (
+                  <div className="border-t border-line/60 pt-1.5">
+                    <button
+                      className="flex items-center gap-1 text-[10px] text-accent hover:underline"
+                      onClick={() => setOpenId(openId === e.id ? null : e.id)}
+                    >
+                      {openId === e.id ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                      {e.payload ? '查看摘要全文' : '查看译文存档'}
+                    </button>
+                    {openId === e.id &&
+                      (e.payload ? (
+                        <div className="mt-2 rounded-lg border border-line/60 bg-ink-1/5 p-2">
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-[10px] text-ink-3">摘要</span>
+                            <button
+                              className="flex items-center gap-1 text-[10px] text-ink-3 hover:text-accent"
+                              onClick={() => {
+                                void navigator.clipboard?.writeText(e.payload ?? '')
+                              }}
+                            >
+                              <Copy size={10} /> 复制
+                            </button>
+                          </div>
+                          <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-[11px] text-ink-1 select-text">{e.payload}</pre>
+                        </div>
+                      ) : (
+                        <p className="mt-1.5 text-[10px] text-ink-3">
+                          原文与译文已完整存档（保留最近若干篇）。可回到智能体对话，用「历史检索」或直接问「《{e.title}》之前的译文是什么」来找回。
+                        </p>
+                      ))}
+                  </div>
                 )}
-                <span className="shrink-0 text-[11px] text-ink-3">
-                  {new Date(e.time).toLocaleString('zh-CN', {
-                    month: 'numeric',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
-                </span>
               </div>
             )
           })}
