@@ -8,6 +8,7 @@ import {
   Menu,
   clipboard,
   systemPreferences,
+  Notification,
   type WebContents,
   type Rectangle,
   type MenuItemConstructorOptions
@@ -68,6 +69,42 @@ function sendToWindow(channel: string, payload?: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload)
   }
+}
+
+/** 每日复习提醒：到点且今天尚未提醒过时弹系统通知（点击唤起窗口） */
+let lastReminderDay = ''
+function checkDailyReminder(): void {
+  if (!Notification.isSupported()) return
+  const cfg = store.get<{ dailyReminder?: boolean; dailyReminderTime?: string }>('settings', {})
+  if (!cfg.dailyReminder) return
+  const now = new Date()
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  const target = cfg.dailyReminderTime ?? '20:00'
+  const dayKey = now.toDateString()
+  if (dayKey === lastReminderDay || `${hh}:${mm}` !== target) return
+  lastReminderDay = dayKey
+
+  // 计算今日到期（含新词）：与 src/lib/srs.ts isDue 保持一致
+  const wb = store.get<{ srs?: { due?: number; reps?: number } }[]>('wordbook', [])
+  const nowTs = Date.now()
+  const due = Array.isArray(wb)
+    ? wb.filter((w) => !w.srs || !w.srs.reps || !w.srs.due || w.srs.due <= nowTs).length
+    : 0
+  if (due <= 0) return
+
+  const n = new Notification({
+    title: '该复习单词啦',
+    body: due > 1 ? `今天有 ${due} 个单词到期，去闪卡背一背吧` : '有 1 个单词到期，去闪卡复习吧'
+  })
+  n.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (getState().mode === 'mini') applyMode('full')
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
+  n.show()
 }
 
 function collectBounds(): void {
@@ -606,6 +643,7 @@ app.whenReady().then(() => {
     })
   }
   createWindow()
+  setInterval(checkDailyReminder, 30000)
 
   app.on('activate', () => {
     // macOS：Dock 点击时若有窗口则显示，否则重建

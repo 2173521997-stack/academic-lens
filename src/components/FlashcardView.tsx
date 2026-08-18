@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   BookOpen, Layers, Sparkles, RefreshCw, Shuffle, Check, X, GraduationCap, PenLine, Clock, Volume2, Headphones
 } from 'lucide-react'
@@ -6,6 +6,8 @@ import { toast } from '../stores/noticeStore'
 import { useFlashcardStore } from '../stores/flashcardStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useWordbookStore } from '../stores/wordbookStore'
+import { useFileStore } from '../stores/fileStore'
+import { analyzeUnknownWords } from '../lib/unknownWords'
 import { useReviewLogStore } from '../stores/reviewLogStore'
 import { normalizeAnswer } from '../lib/flashcard'
 import { isDue } from '../lib/srs'
@@ -15,7 +17,7 @@ import Segmented from './Segmented'
 import EmptyState from './EmptyState'
 
 type FlashTab = 'card' | 'exercise' | 'dictation'
-type CardSource = 'wordbook' | 'due' | 'custom'
+type CardSource = 'wordbook' | 'due' | 'custom' | 'doc'
 
 const COUNTS = [5, 10, 20]
 
@@ -23,6 +25,12 @@ export default function FlashcardView(): React.JSX.Element {
   const store = useFlashcardStore()
   const hasApi = Boolean(useSettingsStore((s) => s.settings.apiKey))
   const wbWords = useWordbookStore((s) => s.words)
+  const docSegments = useFileStore((s) => s.segments)
+  const docName = useFileStore((s) => s.doc?.name ?? '')
+  const docUnknownCount = useMemo(
+    () => (docSegments.length ? analyzeUnknownWords(docSegments).unknownWords.length : 0),
+    [docSegments]
+  )
 
   // 闪卡生成失败：用统一 Notice 呈现
   useEffect(() => {
@@ -41,6 +49,7 @@ export default function FlashcardView(): React.JSX.Element {
   const draw = (): void => {
     if (source === 'wordbook') void store.drawFromWordbook(count, aiEnhance)
     else if (source === 'due') void store.drawDue(count, aiEnhance)
+    else if (source === 'doc') void store.drawFromDoc(count, aiEnhance)
     else {
       const words = customText.split(/[\s,，;；]+/).filter(Boolean)
       void store.drawFromWords(words, count, aiEnhance)
@@ -84,6 +93,7 @@ export default function FlashcardView(): React.JSX.Element {
               items={[
                 { value: 'wordbook', label: '生词本' },
                 { value: 'due', label: '今日到期' },
+                { value: 'doc', label: '当前文档' },
                 { value: 'custom', label: '自选词' }
               ]}
               value={source}
@@ -92,6 +102,11 @@ export default function FlashcardView(): React.JSX.Element {
             {source === 'due' && (
               <span className="flex items-center gap-1 text-[11px] text-accent">
                 <Clock size={11} /> {dueTotal} 词可复习
+              </span>
+            )}
+            {source === 'doc' && (
+              <span className="flex items-center gap-1 text-[11px] text-accent">
+                <BookOpen size={11} /> {docName ? `${docName} · 生词 ${docUnknownCount}` : '未打开文档'}
               </span>
             )}
             <div className="flex items-center gap-1">
@@ -138,7 +153,9 @@ export default function FlashcardView(): React.JSX.Element {
                   hint={
                     source === 'wordbook'
                       ? '从生词本随机抽取，逐张翻面记忆'
-                      : '输入几个单词，AI 自动生成音标 / 构词 / 关联词'
+                      : source === 'doc'
+                        ? '抽取当前打开文档里「未收藏」的生词来背'
+                        : '输入几个单词，AI 自动生成音标 / 构词 / 关联词'
                   }
                 />
               ) : (

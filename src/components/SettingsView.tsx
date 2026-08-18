@@ -133,6 +133,29 @@ export default function SettingsView(): React.JSX.Element {
       <div className="mx-auto max-w-2xl space-y-6 p-6">
         <h1 className="text-[17px] font-semibold">设置</h1>
 
+        {/* 分组快捷跳转 */}
+        <div className="sticky top-2 z-10 flex flex-wrap gap-1.5 rounded-xl border border-line bg-panel/90 p-2 backdrop-blur">
+          {(
+            [
+              ['sec-translate', '翻译'],
+              ['sec-agent', '智能体'],
+              ['sec-dict', '词典'],
+              ['sec-ocr', 'OCR'],
+              ['sec-appearance', '外观'],
+              ['sec-pref', '偏好'],
+              ['sec-shortcuts', '快捷键']
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              className="chip cursor-pointer transition hover:brightness-95"
+              onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {!onboarded && (
           <section className="card space-y-3 border-accent/30 !bg-accent/5 p-5">
             <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
@@ -171,7 +194,7 @@ export default function SettingsView(): React.JSX.Element {
         )}
 
         {onboarded && (
-          <section className="card space-y-3 p-5">
+          <section id="sec-profile" className="card space-y-3 p-5">
             <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
               <User size={14} className="text-accent" /> 个性化档案
             </h2>
@@ -201,7 +224,7 @@ export default function SettingsView(): React.JSX.Element {
           </section>
         )}
 
-        <section className="card space-y-3 p-5">
+        <section id="sec-trust" className="card space-y-3 p-5">
           <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
             <BadgeCheck size={14} className="text-accent" /> 可信度
           </h2>
@@ -222,7 +245,7 @@ export default function SettingsView(): React.JSX.Element {
           </p>
         </section>
 
-        <section className="card space-y-4 p-5">
+        <section id="sec-translate" className="card space-y-4 p-5">
           <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
             <Zap size={14} className="text-accent" /> 翻译 / 重型任务（高配 API）
           </h2>
@@ -305,7 +328,7 @@ export default function SettingsView(): React.JSX.Element {
           </p>
         </section>
 
-        <section className="card space-y-3 p-5">
+        <section id="sec-agent" className="card space-y-3 p-5">
           <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
             <Bot size={14} className="text-accent" /> 智能体 / 轻量编排（低配 API）
           </h2>
@@ -370,7 +393,7 @@ export default function SettingsView(): React.JSX.Element {
           </div>
         </section>
 
-        <section className="card space-y-3 p-5">
+        <section id="sec-dict" className="card space-y-3 p-5">
           <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
             <BookOpen size={14} className="text-accent" /> 词典查询（uapis.cn · 免费）
           </h2>
@@ -414,7 +437,7 @@ export default function SettingsView(): React.JSX.Element {
           </p>
         </section>
 
-        <section className="card space-y-3 p-5">
+        <section id="sec-ocr" className="card space-y-3 p-5">
           <h2 className="text-[13px] font-semibold text-ink-2">图片识别（OCR）</h2>
           <div className="flex items-center gap-2">
             <span className="chip">本地引擎</span>
@@ -438,8 +461,8 @@ export default function SettingsView(): React.JSX.Element {
           </p>
         </section>
 
-        <section className="card space-y-3 p-5">
-          <h2 className="text-[13px] font-semibold text-ink-2">外观</h2>
+        <section id="sec-appearance" className="card space-y-3 p-5">
+          <h2 className="text-[13px] font-semibold text-ink-2">外观与提醒</h2>
           <div className="flex gap-2">
             {THEMES.map((t) => (
               <button
@@ -451,9 +474,34 @@ export default function SettingsView(): React.JSX.Element {
               </button>
             ))}
           </div>
+          <div className="border-t border-line pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[12px] font-medium text-ink-1">每日复习提醒</p>
+                <p className="text-[11px] leading-relaxed text-ink-3">
+                  每天到点提示今天到期的生词（有到期词才提醒），点击通知可直达闪卡。
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input !w-28 !py-1.5 text-[12px]"
+                  type="time"
+                  value={settings.dailyReminderTime}
+                  onChange={(e) => update({ dailyReminderTime: e.target.value || '20:00' })}
+                  disabled={!settings.dailyReminder}
+                />
+                <button
+                  className={`btn !px-3 !py-1.5 text-[11px] ${settings.dailyReminder ? '!bg-accent !text-white' : ''}`}
+                  onClick={() => update({ dailyReminder: !settings.dailyReminder })}
+                >
+                  {settings.dailyReminder ? '已开启' : '开启提醒'}
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section className="card space-y-3 p-5">
+        <section id="sec-pref" className="card space-y-3 p-5">
           <h2 className="text-[13px] font-semibold text-ink-2">翻译偏好</h2>
           <label className="block text-[12px] font-medium text-ink-2">
             领域 / 风格预设
@@ -478,7 +526,7 @@ export default function SettingsView(): React.JSX.Element {
           />
         </section>
 
-        <section className="card space-y-3 p-5">
+        <section id="sec-shortcuts" className="card space-y-3 p-5">
           <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
             <Keyboard size={14} /> 快捷键
           </h2>

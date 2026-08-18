@@ -53,6 +53,12 @@ export interface Settings {
   domain: DomainPreset
   /** 是否把生词本作为术语注入翻译系统提示，保证术语译法统一 */
   injectTerms: boolean
+  /** 每日复习提醒 */
+  dailyReminder: boolean
+  /** 提醒时间 HH:MM */
+  dailyReminderTime: string
+  /** 阅读视图字体：无衬线 / 衬线（学术阅读偏好） */
+  readerFont: 'sans' | 'serif'
 }
 
 interface SettingsState {
@@ -77,7 +83,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     dictApiKey: '',
     lookupSource: 'dict',
     domain: 'general',
-    injectTerms: true
+    injectTerms: true,
+    dailyReminder: false,
+    dailyReminderTime: '20:00',
+    readerFont: 'sans'
   },
   loaded: false,
 

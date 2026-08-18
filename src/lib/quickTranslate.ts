@@ -5,7 +5,7 @@ import { dictLookup } from './dictLookup'
 import { formatUapisCard } from './wordCard'
 import { cleanWord, suggestSpelling } from './wordClean'
 
-export type QuickMode = 'word' | 'translate' | 'cn2en'
+export type QuickMode = 'word' | 'translate' | 'cn2en' | 'polish'
 
 const SYS_WORD =
   '你是英语词典。请用简体中文解释用户给出的英文单词。必须严格按以下格式输出，每行一个字段，不要输出其他内容：\n' +
@@ -32,6 +32,13 @@ const SYS_CN2EN_WORD =
 
 const SYS_CN2EN_SENT =
   '你是专业中英翻译。将用户提供的中文内容翻译为地道、准确的英文，保持学术语气、术语准确。只输出译文，不要任何解释或前缀。'
+
+const SYS_POLISH =
+  '你是学术英文写作润色助手。根据输入语言自动判断：输入为中文时先翻译再润色成地道学术英文；输入为英文时直接润色。' +
+  '必须按以下 Markdown 结构输出，只输出正文：\n' +
+  '## 润色版\n一段成稿。\n' +
+  '## 变体\n一种更正式或更简洁的写法。\n' +
+  '## 用词建议\n- 原词 → 建议词：理由（2–4 条）。'
 
 /** 是否含中文字符（触发中译英） */
 export function isCn(text: string): boolean {
@@ -95,8 +102,8 @@ export function quickTranslate(
     llmCall = runLlm(text, mode, handlers)
   }
 
-  // 中译英 / 句子翻译不走单词清洗（uapis 只支持英→中单词）
-  if (mode === 'translate') {
+  // 中译英 / 句子翻译 / 润色不走单词清洗（uapis 只支持英→中单词）
+  if (mode === 'translate' || mode === 'polish') {
     llmCall = runLlm(text, mode, handlers)
     return { cancel: () => { cancelled = true; llmCall?.cancel() } }
   }
@@ -174,6 +181,7 @@ function runLlm(
   let sys: string
   if (mode === 'cn2en') sys = isCnWord(text) ? SYS_CN2EN_WORD : SYS_CN2EN_SENT
   else if (mode === 'translate') sys = SYS_TRANSLATE
+  else if (mode === 'polish') sys = SYS_POLISH
   else sys = SYS_WORD
 
   let full = ''

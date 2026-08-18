@@ -79,8 +79,8 @@ export default function QuickTranslate(): React.JSX.Element {
       const t = text.trim()
       const m = explicitMode ?? mode
       if (!t || streamingRef.current) return
-      // 自动检测：含中文一律走中译英（词→词卡，句→直译），无需手动切换
-      const eff: QuickMode = isCn(t) ? 'cn2en' : m
+      // 自动检测：含中文一律走中译英（词→词卡，句→直译）；润色模式显式指定，不自动分流
+      const eff: QuickMode = m === 'polish' ? 'polish' : isCn(t) ? 'cn2en' : m
       streamingRef.current = true
       setStreaming(true)
       setError(null)
@@ -209,7 +209,8 @@ export default function QuickTranslate(): React.JSX.Element {
           <Segmented<QuickMode>
             items={[
               { value: 'word', label: '单词' },
-              { value: 'translate', label: '翻译' }
+              { value: 'translate', label: '翻译' },
+              { value: 'polish', label: '润色' }
             ]}
             value={mode}
             onChange={setMode}
@@ -335,7 +336,7 @@ export default function QuickTranslate(): React.JSX.Element {
         {streaming && (
           <div className="mb-1 flex items-center gap-2 text-[11px] text-ink-3">
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-            正在{cnInput ? '中译英' : mode === 'word' ? '查词' : '翻译'}…
+            正在{cnInput ? '中译英' : mode === 'word' ? '查词' : mode === 'polish' ? '润色' : '翻译'}…
           </div>
         )}
 

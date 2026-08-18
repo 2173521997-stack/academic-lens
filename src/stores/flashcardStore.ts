@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { useWordbookStore, type WordEntry } from './wordbookStore'
+import { useFileStore } from './fileStore'
+import { analyzeUnknownWords } from '../lib/unknownWords'
 import { useReviewLogStore } from './reviewLogStore'
 import { isDue } from '../lib/srs'
 import {
@@ -75,8 +77,8 @@ interface FlashcardState {
   unknown: number
   loading: boolean
   error: string | null
-  /** 本轮卡组来源（生词本 / 到期队列 / 自选） */
-  source: 'wordbook' | 'due' | 'custom'
+  /** 本轮卡组来源（生词本 / 到期队列 / 自选 / 当前文档未收藏词） */
+  source: 'wordbook' | 'due' | 'custom' | 'doc'
   // 练习
   exercises: Exercise[]
   exIndex: number
@@ -91,6 +93,8 @@ interface FlashcardState {
   drawFromWordbook: (count: number, aiEnhance: boolean) => Promise<void>
   drawDue: (count: number, aiEnhance: boolean) => Promise<void>
   drawFromWords: (words: string[], count: number, aiEnhance: boolean) => Promise<void>
+  /** 从当前文档「未收藏生词」抽卡 */
+  drawFromDoc: (count: number, aiEnhance: boolean) => Promise<void>
   flip: () => void
   mark: (known: boolean) => void
   genExercises: (count: number) => Promise<void>
@@ -182,6 +186,33 @@ export const useFlashcardStore = create<FlashcardState>((set, get) => ({
     } catch (err) {
       set({ error: `AI 生成失败：${err instanceof Error ? err.message : err}` })
       set({ loading: false })
+    }
+  },
+
+  drawFromDoc: async (count, aiEnhance) => {
+    const segments = useFileStore.getState().segments
+    if (!segments.length) {
+      set({ error: '请先在「翻译」中打开一篇文档，再来抽取本篇生词' })
+      return
+    }
+    const words = analyzeUnknownWords(segments).unknownWords.slice(0, count)
+    if (!words.length) {
+      set({ error: '当前文档没有生词（都已收藏或都是常见词）' })
+      return
+    }
+    set({ loading: true, error: null })
+    try {
+      const deck = aiEnhance
+        ? await aiGenerateCards(words)
+        : words.map((w) => ({ id: `fc_${w}_${Math.random().toString(36).slice(2, 7)}`, word: w, definition: '-' }))
+      if (aiEnhance) persistLevels(deck)
+      set({ deck, index: 0, flipped: false, known: 0, unknown: 0, loading: false, source: 'doc' })
+    } catch (err) {
+      set({ error: `AI 生成失败（${err instanceof Error ? err.message : err}），已回退为基础词卡`, loading: false })
+      set({
+        deck: words.map((w) => ({ id: `fc_${w}_${Math.random().toString(36).slice(2, 7)}`, word: w, definition: '-' })),
+        index: 0, flipped: false, known: 0, unknown: 0, source: 'doc'
+      })
     }
   },
 

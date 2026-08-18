@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, Plus, Trash2, Search, Tag as TagIcon, Check, X, Wand2, RefreshCw, Layers, Sparkles, Tags } from 'lucide-react'
+import { BookOpen, Plus, Trash2, Search, Tag as TagIcon, Check, X, Wand2, RefreshCw, Layers, Sparkles, Tags, Download, Upload } from 'lucide-react'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { toast } from '../stores/noticeStore'
 import {
   clusterByPos,
   clusterBySimilarity,
@@ -70,6 +71,45 @@ export default function WordbookView(): React.JSX.Element {
       return
     }
     setGradingAll(false)
+  }
+
+  /** 导出 Anki 可用 TSV（word / 释义 / 语境句，制表符分隔） */
+  const exportTsv = async (): Promise<void> => {
+    if (!words.length) return
+    const esc = (s?: string): string => (s ?? '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ').trim()
+    const lines = ['单词\t释义\t语境句', ...words.map((w) => [esc(w.word), esc(w.definition), esc(w.context)].join('\t'))]
+    const path = await window.bridge.saveFile({
+      defaultPath: `生词本-${new Date().toISOString().slice(0, 10)}.tsv`,
+      data: lines.join('\n'),
+      filters: [{ name: 'TSV / 文本', extensions: ['tsv', 'txt'] }]
+    })
+    if (path) toast('success', '已导出（可用 Anki 导入，分隔符：制表符）', '生词本导出')
+  }
+
+  /** 导入 TSV / 纯词表 */
+  const importWords = async (): Promise<void> => {
+    const paths = await window.bridge.openFiles()
+    for (const p of paths) {
+      try {
+        const data = await window.bridge.readFile(p)
+        const text = new TextDecoder('utf-8').decode(data)
+        const items: { word: string; definition: string; context?: string }[] = []
+        for (const raw of text.split(/\r?\n/)) {
+          const line = raw.trim()
+          if (!line) continue
+          if (line.includes('\t')) {
+            const [w = '', d = '', c = ''] = line.split('\t')
+            if (/[A-Za-z]/.test(w)) items.push({ word: w.trim(), definition: d.trim(), context: c.trim() || undefined })
+          } else if (/^[A-Za-z][A-Za-z'-]{1,45}$/.test(line)) {
+            items.push({ word: line, definition: '' })
+          }
+        }
+        const n = useWordbookStore.getState().addMany(items)
+        toast('success', n > 0 ? `已导入 ${n} 个单词` : '没有可导入的新单词', '生词本导入')
+      } catch {
+        toast('danger', '导入失败：无法读取文件', '生词本导入')
+      }
+    }
   }
 
   const filtered = useMemo(() => {
@@ -286,6 +326,21 @@ export default function WordbookView(): React.JSX.Element {
             title="用 AI 为生词标注难度（CEFR / 四六级 / 雅思托福 / 专四专八）"
           >
             <Sparkles size={11} /> {gradingAll ? '分级中…' : '自动分级'}
+          </button>
+          <button
+            className="btn btn-ghost !px-2.5 !py-1.5 text-[11px]"
+            onClick={() => void importWords()}
+            title="导入 TSV 或纯词表（每行一个单词，或 单词[TAB]释义[TAB]语境）"
+          >
+            <Upload size={11} /> 导入
+          </button>
+          <button
+            className="btn btn-ghost !px-2.5 !py-1.5 text-[11px]"
+            onClick={() => void exportTsv()}
+            disabled={!words.length}
+            title="导出为 TSV，可在 Anki 中直接导入"
+          >
+            <Download size={11} /> 导出
           </button>
           <button className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>
             <Plus size={13} /> 添加

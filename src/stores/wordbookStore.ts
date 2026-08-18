@@ -33,6 +33,8 @@ interface WordbookState {
   loaded: boolean
   load: () => Promise<void>
   add: (w: WordInput) => void
+  /** 批量添加（去重），返回实际新增条数；一次性持久化避免多次写盘 */
+  addMany: (items: WordInput[]) => number
   remove: (id: string) => void
   update: (id: string, patch: Partial<Pick<WordEntry, 'definition' | 'context' | 'pos' | 'tags' | 'level'>>) => void
   /** 复习某词（按词匹配，不区分大小写），更新 SM-2 调度 */
@@ -78,6 +80,31 @@ export const useWordbookStore = create<WordbookState>((set, get) => ({
     const words = [entry, ...get().words]
     set({ words })
     save(words)
+  },
+
+  addMany: (items) => {
+    const existing = new Set(get().words.map((w) => w.word.toLowerCase()))
+    const fresh: WordEntry[] = []
+    for (const w of items) {
+      const word = w.word.trim()
+      if (!word || existing.has(word.toLowerCase())) continue
+      existing.add(word.toLowerCase())
+      fresh.push({
+        id: `w_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        word,
+        definition: w.definition.trim(),
+        context: w.context?.trim(),
+        pos: w.pos?.trim() || undefined,
+        tags: (w.tags ?? []).map((t) => t.trim()).filter(Boolean),
+        level: w.level?.trim() || undefined,
+        addedAt: Date.now()
+      })
+    }
+    if (!fresh.length) return 0
+    const words = [...fresh, ...get().words]
+    set({ words })
+    save(words)
+    return fresh.length
   },
 
   remove: (id) => {

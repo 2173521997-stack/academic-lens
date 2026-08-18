@@ -1,9 +1,11 @@
 import { memo, useMemo, useState, Fragment } from 'react'
-import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy, Highlighter, Image } from 'lucide-react'
+import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy, Highlighter, Image, Layers, BookOpen } from 'lucide-react'
 import { useFileStore, type DocMode } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useAppStore } from '../stores/appStore'
 import { useAgentStore } from '../stores/agentStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { toast } from '../stores/noticeStore'
 import Segmented from './Segmented'
 import { buildPlainText, buildPlainTextHeader, buildBilingualMarkdown, buildDocxBase64 } from '../lib/exportText'
 import { analyzeUnknownWords, type SegmentUnknown } from '../lib/unknownWords'
@@ -172,13 +174,45 @@ function CnSplitView(): React.JSX.Element {
 
   const [diffOn, setDiffOn] = useState(false)
   const [sentenceOn, setSentenceOn] = useState(false)
+  const readerFont = useSettingsStore((s) => s.settings.readerFont)
+  const toggleReaderFont = (): void => {
+    useSettingsStore.getState().update({ readerFont: readerFont === 'serif' ? 'sans' : 'serif' })
+  }
 
   const diff = useMemo(() => (diffOn ? analyzeUnknownWords(segments) : null), [diffOn, segments, wordbookCount])
+
+  /** 本篇生词一键入生词本（带首次出现语境句），返回新增数 */
+  const addAllUnknown = (): number => {
+    if (!diff) return 0
+    const st = useFileStore.getState()
+    const items = diff.unknownWords.map((w) => {
+      let context = ''
+      for (const s of st.segments) {
+        const idx = s.text.toLowerCase().indexOf(w)
+        if (idx >= 0) {
+          context = s.text.slice(Math.max(0, idx - 48), idx + 96).replace(/\s+/g, ' ').trim()
+          break
+        }
+      }
+      return { word: w, definition: '', context }
+    })
+    return useWordbookStore.getState().addMany(items)
+  }
+
+  const batchAdd = (): void => {
+    if (!diff) return
+    const n = addAllUnknown()
+    toast('success', n > 0 ? `已将 ${n} 个生词加入生词本` : '没有新的生词可加入（都已收藏）', '本篇生词')
+  }
+
+  const goFlashcard = (): void => {
+    useAppStore.getState().go('flashcard')
+  }
 
   let lastPage: number | undefined
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className={`mx-auto max-w-6xl ${readerFont === 'serif' ? 'reader-serif' : ''}`}>
       {/* 生词高亮开关 + 命中率条 */}
       <div className="sticky top-0 z-10 border-b border-line bg-panel/95 backdrop-blur">
         <div className="flex items-center gap-3 px-3 py-1.5">
@@ -196,11 +230,30 @@ function CnSplitView(): React.JSX.Element {
           >
             <Languages size={11} /> {sentenceOn ? '逐段' : '逐句'}
           </button>
+          <button
+            className={`btn !px-2.5 !py-1 text-[11px] ${readerFont === 'serif' ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
+            onClick={toggleReaderFont}
+            title="切换衬线 / 无衬线字体"
+          >
+            {readerFont === 'serif' ? <BookOpen size={11} /> : <BookOpen size={11} />} {readerFont === 'serif' ? '衬线' : '无衬线'}
+          </button>
           {diff && (
-            <span className="flex items-center gap-1 text-[11px] text-ink-2">
-              <span className="chip !text-[10px]">生词 {diff.totalUnknown}</span>
-              <span className="text-ink-3">已认识命中率 {diff.hitRate}% · 对标生词本 {wordbookCount} 词</span>
-            </span>
+            <>
+              <span className="flex items-center gap-1 text-[11px] text-ink-2">
+                <span className="chip !text-[10px]">生词 {diff.totalUnknown}</span>
+                <span className="text-ink-3">已认识命中率 {diff.hitRate}% · 对标生词本 {wordbookCount} 词</span>
+              </span>
+              {diff.totalUnknown > 0 && (
+                <span className="flex items-center gap-1">
+                  <button className="btn !px-2.5 !py-1 text-[11px]" onClick={batchAdd} title="把本篇全部未收藏生词（含语境句）加入生词本">
+                    <BookmarkPlus size={11} /> 本篇生词入本
+                  </button>
+                  <button className="btn !px-2.5 !py-1 text-[11px]" onClick={goFlashcard} title="去闪卡复习">
+                    <Layers size={11} /> 去闪卡背
+                  </button>
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
