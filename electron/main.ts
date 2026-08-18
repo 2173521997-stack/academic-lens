@@ -61,6 +61,8 @@ const shortcutStatus: Record<'toggle' | 'mode' | 'selection', boolean> = {
   mode: false,
   selection: false
 }
+/** 一键翻译当前生效的触发键（Windows 支持降级链） */
+let selectionAccel = isWin ? 'Alt+X' : 'CommandOrControl+X'
 
 function sendToWindow(channel: string, payload?: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -127,6 +129,43 @@ function createWindow(): void {
 
   mainWindow.setAlwaysOnTop(st.alwaysOnTop && isMini, 'floating')
   mainWindow.setSkipTaskbar(isMini)
+
+  if (!isMac) {
+    // Windows：移除默认菜单栏，避免 Alt 组合键被菜单栏吞掉（Alt+X 触发取词失效的根因）
+    // 编辑快捷键（Ctrl+C/V/X/A）用 before-input-event 兜底，右键菜单用 context-menu 补充
+    mainWindow.webContents.on('before-input-event', (_e, input) => {
+      if (input.type !== 'keyDown' || !input.control || input.meta || input.alt) return
+      const k = input.key.toLowerCase()
+      const wc = mainWindow?.webContents
+      if (!wc) return
+      if (k === 'c') {
+        wc.copy()
+        _e.preventDefault()
+      } else if (k === 'v') {
+        wc.paste()
+        _e.preventDefault()
+      } else if (k === 'x') {
+        wc.cut()
+        _e.preventDefault()
+      } else if (k === 'a') {
+        wc.selectAll()
+        _e.preventDefault()
+      }
+    })
+    mainWindow.webContents.on('context-menu', (_e, params) => {
+      const wc = mainWindow?.webContents
+      if (!wc) return
+      const tpl: MenuItemConstructorOptions[] = []
+      if (params.isEditable) {
+        tpl.push({ role: 'cut', label: '剪切' }, { role: 'copy', label: '复制' }, { role: 'paste', label: '粘贴' }, { type: 'separator' }, { role: 'selectAll', label: '全选' })
+      } else if (params.selectionText.trim().length > 0) {
+        tpl.push({ role: 'copy', label: '复制' })
+      } else {
+        return
+      }
+      Menu.buildFromTemplate(tpl).popup({ window: mainWindow ?? undefined })
+    })
+  }
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   mainWindow.on('maximize', () => mainWindow?.webContents.send('win:maximized', true))
@@ -281,15 +320,33 @@ function registerIpc(): void {
 
   // 查询快捷键注册状态，供设置页实时展示
   ipcMain.handle('shortcut:getStatus', () => ({
-    ...shortcutStatus
+    ...shortcutStatus,
+    selectionAccel
   }))
+
+  // 当前生效的一键翻译触发键
+  ipcMain.handle('shortcut:accel', () => selectionAccel)
+
+  // 一键翻译自检：模拟热键流程（若自家窗口聚焦先隐藏），返回剪贴板取词结果
+  ipcMain.handle('selection:test', async () => {
+    if (mainWindow && mainWindow.isVisible() && mainWindow.isFocused()) {
+      mainWindow.hide()
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    const r = await grabSelection()
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+    return { text: r.text || null, error: r.error ?? null, accel: selectionAccel }
+  })
 
   // 快捷键被其他 App 占用后手动重试注册
   ipcMain.handle('shortcut:retry', () => {
     globalShortcut.unregisterAll()
     registerShortcuts()
-    sendToWindow('shortcut:status', { ...shortcutStatus })
-    return { ...shortcutStatus }
+    sendToWindow('shortcut:status', { ...shortcutStatus, selectionAccel })
+    return { ...shortcutStatus, selectionAccel }
   })
 
   // macOS 辅助功能（自动复制取词）授权状态
@@ -388,6 +445,41 @@ function registerIpc(): void {
   })
 }
 
+/**
+ * 一键翻译触发键注册（Windows 支持降级链：Alt+X → Ctrl+Alt+X → Ctrl+Shift+X）
+ * 注册成功后持久化，下次启动优先使用上次生效的键。
+ */
+function registerSelectionShortcut(): boolean {
+  const candidates = isWin ? ['Alt+X', 'Ctrl+Alt+X', 'Ctrl+Shift+X'] : ['CommandOrControl+X']
+  const saved = isWin ? store.get<string>('selectionAccel', '') : ''
+  const ordered = saved ? [saved, ...candidates.filter((a) => a !== saved)] : candidates
+
+  for (const acc of ordered) {
+    const ok = globalShortcut.register(acc, () => {
+      if (!mainWindow) return
+      void (async () => {
+        if (mainWindow.isVisible() && mainWindow.isFocused()) {
+          mainWindow.hide()
+          await new Promise((r) => setTimeout(r, 300))
+        }
+        const r = await grabSelection()
+        if (!mainWindow || mainWindow.isDestroyed()) return
+        if (getState().mode === 'full') applyMode('mini')
+        mainWindow.show()
+        mainWindow.focus()
+        if (r.text) mainWindow.webContents.send('selection:text', r.text)
+        else mainWindow.webContents.send('selection:empty', r.error)
+      })()
+    })
+    if (ok) {
+      selectionAccel = acc
+      if (isWin && acc !== saved) store.set('selectionAccel', acc)
+      return true
+    }
+  }
+  return false
+}
+
 function registerShortcuts(): void {
   // 唤起 / 隐藏小窗：唤起时同步聚焦输入框并切到单词界面，复制内容后 Cmd/Ctrl+V 粘贴即查词
   const okT = globalShortcut.register('CommandOrControl+Shift+T', () => {
@@ -414,23 +506,13 @@ function registerShortcuts(): void {
   shortcutStatus.mode = okM
   if (!okM) console.error('[shortcut] CmdOrCtrl+Shift+M 注册失败（可能被占用）')
 
-  // 一键翻译：macOS ⌘X / Windows Alt+X = 复制选中 → 唤起小窗 → 自动填入并翻译
-  // Windows 用 Alt+X 而非 Ctrl+X：不劫持系统的「剪切 Ctrl+X」，且 Alt+X 未被系统占用
-  // 注意顺序：必须先取词再唤起——若先 show/focus 小窗，模拟 Cmd+C 会复制小窗自己而非前台 App
-  // 需要 macOS「辅助功能」授权（模拟 Cmd+C 取词）
-  const okX = globalShortcut.register(isWin ? 'Alt+X' : 'CommandOrControl+X', () => {
-    if (!mainWindow) return
-    void grabSelection().then((r) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      if (getState().mode === 'full') applyMode('mini')
-      mainWindow.show()
-      mainWindow.focus()
-      if (r.text) mainWindow.webContents.send('selection:text', r.text)
-      else mainWindow.webContents.send('selection:empty', r.error)
-    })
-  })
+  // 一键翻译：macOS ⌘X / Windows Alt+X（失败自动降级） = 复制选中 → 唤起小窗 → 自动填入并翻译
+  // Windows 用 Alt 系而非 Ctrl+X：不劫持系统的「剪切 Ctrl+X」，且 Alt+X 未被系统占用
+  // 注意顺序：必须先取词再唤起——若先 show/focus 小窗，模拟 Ctrl+C 会复制小窗自己而非前台 App
+  // 若自家小窗可见且聚焦，先隐藏让前台回到之前的应用，再取词
+  const okX = registerSelectionShortcut()
   shortcutStatus.selection = okX
-  if (!okX) console.error(`[shortcut] ${isWin ? 'Alt' : 'Cmd'}+X 注册失败（可能被占用）`)
+  if (!okX) console.error(`[shortcut] ${selectionAccel} 及其备选键全部注册失败（可能被占用）`)
 }
 
 function buildMacMenu(): void {
@@ -508,6 +590,10 @@ function buildMacMenu(): void {
 
 app.whenReady().then(() => {
   registerIpc()
+  if (!isMac) {
+    // Windows：移除默认菜单栏，避免 Alt 组合键被菜单栏抢占（Alt+X 热键失效根因）
+    Menu.setApplicationMenu(null)
+  }
   registerShortcuts()
   sendToWindow('shortcut:status', { ...shortcutStatus })
   if (isMac) {

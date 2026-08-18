@@ -83,14 +83,19 @@ const bridge = {
       toggle: boolean
       mode: boolean
       selection: boolean
+      selectionAccel?: string
     }>,
+  shortcutAccel: () => ipcRenderer.invoke('shortcut:accel') as Promise<string>,
+  selectionTest: () =>
+    ipcRenderer.invoke('selection:test') as Promise<{ text: string | null; error: string | null; accel: string }>,
   shortcutRetry: () =>
     ipcRenderer.invoke('shortcut:retry') as Promise<{
       toggle: boolean
       mode: boolean
       selection: boolean
+      selectionAccel?: string
     }>,
-  onShortcutStatus: (cb: (s: { toggle: boolean; mode: boolean; selection: boolean }) => void) =>
+  onShortcutStatus: (cb: (s: { toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string }) => void) =>
     subscribe('shortcut:status', cb),
   speak: (text: string, rate?: number) => ipcRenderer.send('speech:speak', { text, rate }),
   llmStream,

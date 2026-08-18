@@ -54,9 +54,11 @@ export interface Bridge {
   onSelectionEmpty: (cb: (message?: string) => void) => () => void
   accessibilityGet: () => Promise<{ trusted: boolean }>
   accessibilityOpenSettings: () => Promise<boolean>
-  shortcutGetStatus: () => Promise<{ toggle: boolean; mode: boolean; selection: boolean }>
-  shortcutRetry: () => Promise<{ toggle: boolean; mode: boolean; selection: boolean }>
-  onShortcutStatus: (cb: (s: { toggle: boolean; mode: boolean; selection: boolean }) => void) => () => void
+  shortcutGetStatus: () => Promise<{ toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string }>
+  shortcutAccel: () => Promise<string>
+  selectionTest: () => Promise<{ text: string | null; error: string | null; accel: string }>
+  shortcutRetry: () => Promise<{ toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string }>
+  onShortcutStatus: (cb: (s: { toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string }) => void) => () => void
   speak: (text: string, rate?: number) => void
   llmStream: (id: string, req: LLMRequest, handlers: StreamHandlers) => void
   llmCancel: (id: string) => void

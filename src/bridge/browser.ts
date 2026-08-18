@@ -121,8 +121,10 @@ export function createBrowserBridge(): Bridge {
     onSelectionEmpty: unsub,
     accessibilityGet: async () => ({ trusted: true }),
     accessibilityOpenSettings: async () => true,
-    shortcutGetStatus: async () => ({ toggle: true, mode: true, selection: true }),
-    shortcutRetry: async () => ({ toggle: true, mode: true, selection: true }),
+    shortcutGetStatus: async () => ({ toggle: true, mode: true, selection: true, selectionAccel: 'Alt+X' }),
+    shortcutAccel: async () => 'Alt+X',
+    selectionTest: async () => ({ text: null, error: '浏览器模式不支持全局取词', accel: 'Alt+X' }),
+    shortcutRetry: async () => ({ toggle: true, mode: true, selection: true, selectionAccel: 'Alt+X' }),
     onShortcutStatus: unsub,
     speak: (text) => {
       try {

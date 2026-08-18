@@ -19,13 +19,30 @@ function run(cmd: string, args: string[]): Promise<{ ok: boolean; error?: string
   })
 }
 
-function sendCopyBySendKeys(): Promise<{ ok: boolean; error?: string }> {
+/** PowerShell 编码命令：utf16le base64，避免中文与引号转义问题 */
+function encodedCommand(ps: string): string {
+  return Buffer.from(ps, 'utf16le').toString('base64')
+}
+
+function sendCopyByPsSendKeys(): Promise<{ ok: boolean; error?: string }> {
   return run('powershell.exe', [
     '-NoProfile',
     '-WindowStyle', 'Hidden',
-    '-Command',
-    `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^c')`
+    '-EncodedCommand',
+    encodedCommand(
+      `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^c')`
+    )
   ])
+}
+
+/** PowerShell user32 keybd_event 注入 Ctrl+C：对部分不吃 SendKeys 的应用更可靠 */
+function sendCopyByPsSendInput(): Promise<{ ok: boolean; error?: string }> {
+  const ps =
+    `$sig = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);';\n` +
+    `$k = Add-Type -MemberDefinition $sig -Name Kbd -Namespace Win32 -PassThru;\n` +
+    `$k::keybd_event(0x11,0,0,[UIntPtr]::Zero); $k::keybd_event(0x43,0,0,[UIntPtr]::Zero);\n` +
+    `$k::keybd_event(0x43,0,2,[UIntPtr]::Zero); $k::keybd_event(0x11,0,2,[UIntPtr]::Zero);\n`
+  return run('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-EncodedCommand', encodedCommand(ps)])
 }
 
 let vbsPath: string | null = null
@@ -44,27 +61,30 @@ function getVbs(): string {
 /**
  * 模拟系统复制快捷键（Cmd+C / Ctrl+C）复制前台 App 选中内容。
  * - macOS：osascript 模拟 ⌘C，需「辅助功能」授权
- * - Windows：cscript 跑 VBS 发送 Ctrl+C（约 150ms 启动，远快于 PowerShell 冷启动 3s+），失败回退 PowerShell SendKeys
+ * - Windows：cscript(VBS SendKeys，约150ms) → PowerShell SendKeys → PowerShell keybd_event 三重递进
  */
-function sendCopyKey(): Promise<{ ok: boolean; error?: string }> {
+async function sendCopyKey(): Promise<{ ok: boolean; error?: string }> {
   if (isMac) {
     return run('osascript', ['-e', 'tell application "System Events" to keystroke "c" using command down'])
   }
   if (isWin) {
     const vbs = getVbs()
     if (vbs) {
-      return run('cscript.exe', ['//B', '//NoLogo', vbs]).then((r) => {
-        if (r.ok) return r
-        return sendCopyBySendKeys().then((fallback) =>
-          fallback.ok
-            ? fallback
-            : { ok: false, error: `cscript: ${r.error ?? '失败'}；PowerShell: ${fallback.error ?? '失败'}` }
-        )
-      })
+      const r1 = await run('cscript.exe', ['//B', '//NoLogo', vbs])
+      if (r1.ok) return r1
+      const r2 = await sendCopyByPsSendKeys()
+      if (r2.ok) return r2
+      const r3 = await sendCopyByPsSendInput()
+      return r3.ok
+        ? r3
+        : { ok: false, error: `cscript:${r1.error ?? ''} | PS:${r2.error ?? ''} | SendInput:${r3.error ?? ''}` }
     }
-    return sendCopyBySendKeys()
+    const r2 = await sendCopyByPsSendKeys()
+    if (r2.ok) return r2
+    const r3 = await sendCopyByPsSendInput()
+    return r3.ok ? r3 : { ok: false, error: `PS:${r2.error ?? ''} | SendInput:${r3.error ?? ''}` }
   }
-  return Promise.resolve({ ok: false, error: '非 macOS/Windows 平台' })
+  return { ok: false, error: '非 macOS/Windows 平台' }
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -82,7 +102,7 @@ export async function grabSelection(): Promise<{ text: string; error?: string }>
     return { text: '', error: `取词失败：${copy.error ?? '模拟复制按键未执行'}` }
   }
 
-  const deadline = Date.now() + 2500
+  const deadline = Date.now() + 3500
   let text = clipboard.readText().trim()
   while (Date.now() < deadline) {
     if (text && text !== backupText) break

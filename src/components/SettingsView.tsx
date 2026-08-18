@@ -58,7 +58,8 @@ export default function SettingsView(): React.JSX.Element {
   const [showKey, setShowKey] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean } | null>(null)
+  const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string } | null>(null)
+  const [selTest, setSelTest] = useState<{ busy: boolean; ok?: boolean; msg?: string; accel?: string } | null>(null)
   const [axTrusted, setAxTrusted] = useState<boolean | null>(null)
 
   // 个人化档案 + 可信度开关
@@ -514,7 +515,7 @@ export default function SettingsView(): React.JSX.Element {
             <div className="flex items-center gap-2">
               {shortcutState && <StatusChip ok={shortcutState.selection} text={shortcutState.selection ? '已注册' : '未注册'} />}
               <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
-                {isMac ? '⌘X' : 'Alt+X'}
+                {isMac ? '⌘X' : shortcutState?.selectionAccel || 'Alt+X'}
               </kbd>
             </div>
           </div>
@@ -536,7 +537,7 @@ export default function SettingsView(): React.JSX.Element {
               </kbd>
             </div>
           </div>
-          {shortcutState && (!shortcutState.toggle || !shortcutState.mode) && (
+          {shortcutState && (!shortcutState.toggle || !shortcutState.mode || !shortcutState.selection) && (
             <div className="flex items-center gap-2">
               <button
                 className="btn !px-3 !py-1.5 text-[11px]"
@@ -547,6 +548,45 @@ export default function SettingsView(): React.JSX.Element {
               <p className="text-[11px] text-ink-3">可能被其他 App 占用，点此重试。</p>
             </div>
           )}
+          <div className="rounded-xl border border-line bg-surface p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] font-medium">
+                Windows 取词自检：模拟 Alt+X 全流程（隐藏本窗口 → 复制前台选中 → 读剪贴板）
+              </span>
+              <button
+                className="btn !px-3 !py-1.5 text-[11px]"
+                disabled={selTest?.busy}
+                onClick={() => {
+                  setSelTest({ busy: true })
+                  void window.bridge.selectionTest().then((r) => {
+                    setSelTest({
+                      busy: false,
+                      ok: !!r.text,
+                      accel: r.accel,
+                      msg: r.text
+                        ? `取词成功（${r.text.length} 字符）`
+                        : (r.error ?? '未检测到选中文字')
+                    })
+                  })
+                }}
+              >
+                {selTest?.busy ? <Zap size={11} className="animate-pulse" /> : <Zap size={11} />}
+                {selTest?.busy ? '测试中…' : '一键翻译自检'}
+              </button>
+            </div>
+            {selTest && !selTest.busy && (
+              <p className={`mt-2 flex items-center gap-1.5 text-[11px] ${selTest.ok ? 'text-ok' : 'text-danger'}`}>
+                {selTest.ok ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                <span className="max-w-[420px] break-all">
+                  {selTest.accel ? `触发键 ${selTest.accel} · ` : ''}
+                  {selTest.msg}
+                </span>
+              </p>
+            )}
+            <p className="mt-1.5 text-[10px] leading-relaxed text-ink-3">
+              提示：先在其它应用（浏览器/Word）选中一个英文单词，再点自检；若选中小窗自身文字会提示无选中。
+            </p>
+          </div>
           <p className="text-[11px] leading-relaxed text-ink-3">
             一键翻译：在任意 App 选中单词或句子，按 {isMac ? '⌘X' : 'Alt+X'} 即自动完成「复制 → 唤起小窗 → 翻译」，
             单词显示音标释义与例句，中文自动译成英文；选中文字不足时提示重新选择。
