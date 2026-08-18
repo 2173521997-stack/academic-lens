@@ -514,7 +514,7 @@ export default function SettingsView(): React.JSX.Element {
             <div className="flex items-center gap-2">
               {shortcutState && <StatusChip ok={shortcutState.selection} text={shortcutState.selection ? '已注册' : '未注册'} />}
               <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
-                {isMac ? '⌘X' : 'Ctrl+X'}
+                {isMac ? '⌘X' : 'Alt+X'}
               </kbd>
             </div>
           </div>
@@ -548,7 +548,7 @@ export default function SettingsView(): React.JSX.Element {
             </div>
           )}
           <p className="text-[11px] leading-relaxed text-ink-3">
-            一键翻译：在任意 App 选中单词或句子，按 {isMac ? '⌘X' : 'Ctrl+X'} 即自动完成「复制 → 唤起小窗 → 翻译」，
+            一键翻译：在任意 App 选中单词或句子，按 {isMac ? '⌘X' : 'Alt+X'} 即自动完成「复制 → 唤起小窗 → 翻译」，
             单词显示音标释义与例句，中文自动译成英文；选中文字不足时提示重新选择。
             <br />
             仅唤起：按 {isMac ? '⌘⇧T' : 'Ctrl+Shift+T'} 唤起小窗并聚焦输入框，自己 Cmd/Ctrl+V 粘贴。

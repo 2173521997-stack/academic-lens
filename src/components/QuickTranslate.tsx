@@ -132,7 +132,7 @@ export default function QuickTranslate(): React.JSX.Element {
     [run]
   )
 
-  // Cmd/Ctrl+X：一键翻译（自动复制选中 → 唤起 → 自动填入并翻译），唤起统一落在单词页面
+  // ⌘X / Alt+X：一键翻译（自动复制选中 → 唤起 → 自动填入并翻译），唤起统一落在单词页面
   useEffect(() => {
     const offText = window.bridge.onSelectionText((text) => {
       const t = text.trim()
@@ -147,7 +147,7 @@ export default function QuickTranslate(): React.JSX.Element {
       run(t, isWord ? 'word' : 'translate')
     })
     const offEmpty = window.bridge.onSelectionEmpty((message) => {
-      setError(message ?? '未检测到选中文字：请先选中单词或句子，再按 Cmd/Ctrl+X')
+      setError(message ?? '未检测到选中文字：请先选中单词或句子，再按取词快捷键')
     })
     return () => {
       offText()

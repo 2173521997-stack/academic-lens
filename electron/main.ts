@@ -414,10 +414,11 @@ function registerShortcuts(): void {
   shortcutStatus.mode = okM
   if (!okM) console.error('[shortcut] CmdOrCtrl+Shift+M 注册失败（可能被占用）')
 
-  // 一键翻译：Cmd+X = 复制选中 → 唤起小窗 → 自动填入并翻译
+  // 一键翻译：macOS ⌘X / Windows Alt+X = 复制选中 → 唤起小窗 → 自动填入并翻译
+  // Windows 用 Alt+X 而非 Ctrl+X：不劫持系统的「剪切 Ctrl+X」，且 Alt+X 未被系统占用
   // 注意顺序：必须先取词再唤起——若先 show/focus 小窗，模拟 Cmd+C 会复制小窗自己而非前台 App
   // 需要 macOS「辅助功能」授权（模拟 Cmd+C 取词）
-  const okX = globalShortcut.register('CommandOrControl+X', () => {
+  const okX = globalShortcut.register(isWin ? 'Alt+X' : 'CommandOrControl+X', () => {
     if (!mainWindow) return
     void grabSelection().then((r) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
@@ -429,7 +430,7 @@ function registerShortcuts(): void {
     })
   })
   shortcutStatus.selection = okX
-  if (!okX) console.error('[shortcut] CmdOrCtrl+X 注册失败（可能被占用）')
+  if (!okX) console.error(`[shortcut] ${isWin ? 'Alt' : 'Cmd'}+X 注册失败（可能被占用）`)
 }
 
 function buildMacMenu(): void {
