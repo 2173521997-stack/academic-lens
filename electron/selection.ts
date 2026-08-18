@@ -93,7 +93,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * 一键取词：备份剪贴板 → 模拟 Ctrl/Cmd+C → 轮询剪贴板变化 → 延迟恢复原内容。
  * 返回失败原因（osascript/cscript 报错），供界面展示精确定位。
  */
-export async function grabSelection(): Promise<{ text: string; error?: string }> {
+export async function grabSelection(opts?: { onOwnWrite?: () => void }): Promise<{ text: string; error?: string }> {
   const backupText = clipboard.readText()
   const backupImage = clipboard.readImage()
 
@@ -118,6 +118,7 @@ export async function grabSelection(): Promise<{ text: string; error?: string }>
     try {
       if (backupText) clipboard.writeText(backupText)
       if (!backupImage.isEmpty()) clipboard.writeImage(backupImage)
+      opts?.onOwnWrite?.()
     } catch {
       /* 恢复失败忽略 */
     }

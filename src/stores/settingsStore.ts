@@ -59,6 +59,8 @@ export interface Settings {
   dailyReminderTime: string
   /** 阅读视图字体：无衬线 / 衬线（学术阅读偏好） */
   readerFont: 'sans' | 'serif'
+  /** 复制即译：监听剪贴板，外部复制文字自动弹小窗翻译 */
+  copyWatch: boolean
 }
 
 interface SettingsState {
@@ -86,7 +88,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     injectTerms: true,
     dailyReminder: false,
     dailyReminderTime: '20:00',
-    readerFont: 'sans'
+    readerFont: 'sans',
+    copyWatch: false
   },
   loaded: false,
 

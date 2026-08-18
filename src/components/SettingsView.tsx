@@ -58,7 +58,7 @@ export default function SettingsView(): React.JSX.Element {
   const [showKey, setShowKey] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string } | null>(null)
+  const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string; registeredAccels?: string[] } | null>(null)
   const [selTest, setSelTest] = useState<{ busy: boolean; ok?: boolean; msg?: string; accel?: string } | null>(null)
   const [axTrusted, setAxTrusted] = useState<boolean | null>(null)
 
@@ -562,8 +562,8 @@ export default function SettingsView(): React.JSX.Element {
             <span className="text-[13px]">一键翻译（复制选中 → 唤起 → 自动翻译）</span>
             <div className="flex items-center gap-2">
               {shortcutState && <StatusChip ok={shortcutState.selection} text={shortcutState.selection ? '已注册' : '未注册'} />}
-              <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
-                {isMac ? '⌘X' : shortcutState?.selectionAccel || 'Alt+X'}
+              <kbd className="max-w-[240px] truncate rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
+                {isMac ? '⌘X' : (shortcutState?.registeredAccels?.length ? shortcutState.registeredAccels.join(' · ') : shortcutState?.selectionAccel || 'Alt+X')}
               </kbd>
             </div>
           </div>
@@ -635,8 +635,24 @@ export default function SettingsView(): React.JSX.Element {
               提示：先在其它应用（浏览器/Word）选中一个英文单词，再点自检；若选中小窗自身文字会提示无选中。
             </p>
           </div>
+          <div className="rounded-xl border border-line bg-surface p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[12px] font-medium text-ink-1">复制即译（剪贴板监听）</p>
+                <p className="text-[11px] leading-relaxed text-ink-3">
+                  在任意应用复制文字（Ctrl+C）即自动弹小窗翻译，不依赖快捷键；应用自身窗口内复制不打扰。
+                </p>
+              </div>
+              <button
+                className={`btn shrink-0 !px-3 !py-1.5 text-[11px] ${settings.copyWatch ? '!bg-accent !text-white' : ''}`}
+                onClick={() => update({ copyWatch: !settings.copyWatch })}
+              >
+                {settings.copyWatch ? '已开启' : '开启'}
+              </button>
+            </div>
+          </div>
           <p className="text-[11px] leading-relaxed text-ink-3">
-            一键翻译：在任意 App 选中单词或句子，按 {isMac ? '⌘X' : 'Alt+X'} 即自动完成「复制 → 唤起小窗 → 翻译」，
+            一键翻译：在任意 App 选中单词或句子，按 {isMac ? '⌘X' : 'Alt+X / Ctrl+Alt+X / Ctrl+Shift+X（已全部注册，任一可触发）'} 即自动完成「复制 → 唤起小窗 → 翻译」，
             单词显示音标释义与例句，中文自动译成英文；选中文字不足时提示重新选择。
             <br />
             仅唤起：按 {isMac ? '⌘⇧T' : 'Ctrl+Shift+T'} 唤起小窗并聚焦输入框，自己 Cmd/Ctrl+V 粘贴。

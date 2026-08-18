@@ -19,6 +19,7 @@ import { execFile } from 'node:child_process'
 import { streamLLM, llmComplete, type LLMRequest } from './llm'
 import { store } from './store'
 import { grabSelection } from './selection'
+import { startClipboardWatch, stopClipboardWatch, markOwnClipboardWrite } from './clipboardWatch'
 import { fileURLToPath } from 'node:url'
 
 // vite-plugin-electron 在 "type": "module" 下输出 ESM，__dirname 不存在，需自行构造
@@ -62,13 +63,32 @@ const shortcutStatus: Record<'toggle' | 'mode' | 'selection', boolean> = {
   mode: false,
   selection: false
 }
-/** 一键翻译当前生效的触发键（Windows 支持降级链） */
+/** 一键翻译当前生效的触发键（Windows 多键并行，取首个成功注册者展示） */
 let selectionAccel = isWin ? 'Alt+X' : 'CommandOrControl+X'
+/** 一键翻译全部已注册的触发键 */
+const registeredAccels: string[] = []
 
 function sendToWindow(channel: string, payload?: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload)
   }
+}
+
+/** 复制即译：外部应用复制文字 → 唤起小窗自动翻译（自家窗口聚焦时不打扰） */
+function handleExternalCopy(text: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isFocused()) return
+  if (getState().mode === 'full') applyMode('mini')
+  mainWindow.show()
+  mainWindow.focus()
+  mainWindow.webContents.send('selection:text', text)
+}
+
+/** 按设置开关启动/停止剪贴板监听 */
+function applyCopyWatch(): void {
+  const cfg = store.get<{ copyWatch?: boolean }>('settings', {})
+  if (cfg.copyWatch) startClipboardWatch(handleExternalCopy)
+  else stopClipboardWatch()
 }
 
 /** 每日复习提醒：到点且今天尚未提醒过时弹系统通知（点击唤起窗口） */
@@ -268,6 +288,7 @@ function registerIpc(): void {
   ipcMain.handle('store:get', (_e, key: string) => store.get(key, undefined))
   ipcMain.handle('store:set', (_e, key: string, value: unknown) => {
     store.set(key, value)
+    if (key === 'settings') applyCopyWatch()
     return true
   })
 
@@ -358,7 +379,8 @@ function registerIpc(): void {
   // 查询快捷键注册状态，供设置页实时展示
   ipcMain.handle('shortcut:getStatus', () => ({
     ...shortcutStatus,
-    selectionAccel
+    selectionAccel,
+    registeredAccels: [...registeredAccels]
   }))
 
   // 当前生效的一键翻译触发键
@@ -370,20 +392,20 @@ function registerIpc(): void {
       mainWindow.hide()
       await new Promise((r) => setTimeout(r, 300))
     }
-    const r = await grabSelection()
+    const r = await grabSelection({ onOwnWrite: markOwnClipboardWrite })
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show()
       mainWindow.focus()
     }
-    return { text: r.text || null, error: r.error ?? null, accel: selectionAccel }
+    return { text: r.text || null, error: r.error ?? null, accel: registeredAccels.join(' · ') || selectionAccel }
   })
 
   // 快捷键被其他 App 占用后手动重试注册
   ipcMain.handle('shortcut:retry', () => {
     globalShortcut.unregisterAll()
     registerShortcuts()
-    sendToWindow('shortcut:status', { ...shortcutStatus, selectionAccel })
-    return { ...shortcutStatus, selectionAccel }
+    sendToWindow('shortcut:status', { ...shortcutStatus, selectionAccel, registeredAccels: [...registeredAccels] })
+    return { ...shortcutStatus, selectionAccel, registeredAccels: [...registeredAccels] }
   })
 
   // macOS 辅助功能（自动复制取词）授权状态
@@ -478,20 +500,23 @@ function registerIpc(): void {
 
   // 复制到系统剪贴板：渲染进程的 navigator.clipboard 在后台/无焦点时不可靠
   ipcMain.on('clipboard:write', (_e, text: string) => {
-    if (typeof text === 'string' && text) clipboard.writeText(text)
+    if (typeof text === 'string' && text) {
+      clipboard.writeText(text)
+      markOwnClipboardWrite()
+    }
   })
 }
 
 /**
- * 一键翻译触发键注册（Windows 支持降级链：Alt+X → Ctrl+Alt+X → Ctrl+Shift+X）
- * 注册成功后持久化，下次启动优先使用上次生效的键。
+ * 一键翻译触发键注册。
+ * Windows 多键并行：Alt+X / Ctrl+Alt+X / Ctrl+Shift+X 同时注册（任一触发即生效），
+ * 绕开"Alt 系被输入法/系统吞掉但注册仍返回成功"的盲区。
  */
 function registerSelectionShortcut(): boolean {
   const candidates = isWin ? ['Alt+X', 'Ctrl+Alt+X', 'Ctrl+Shift+X'] : ['CommandOrControl+X']
-  const saved = isWin ? store.get<string>('selectionAccel', '') : ''
-  const ordered = saved ? [saved, ...candidates.filter((a) => a !== saved)] : candidates
-
-  for (const acc of ordered) {
+  registeredAccels.length = 0
+  let anyOk = false
+  for (const acc of candidates) {
     const ok = globalShortcut.register(acc, () => {
       if (!mainWindow) return
       void (async () => {
@@ -499,7 +524,7 @@ function registerSelectionShortcut(): boolean {
           mainWindow.hide()
           await new Promise((r) => setTimeout(r, 300))
         }
-        const r = await grabSelection()
+        const r = await grabSelection({ onOwnWrite: markOwnClipboardWrite })
         if (!mainWindow || mainWindow.isDestroyed()) return
         if (getState().mode === 'full') applyMode('mini')
         mainWindow.show()
@@ -509,12 +534,12 @@ function registerSelectionShortcut(): boolean {
       })()
     })
     if (ok) {
-      selectionAccel = acc
-      if (isWin && acc !== saved) store.set('selectionAccel', acc)
-      return true
+      anyOk = true
+      registeredAccels.push(acc)
     }
   }
-  return false
+  selectionAccel = registeredAccels[0] ?? (isWin ? 'Alt+X' : 'CommandOrControl+X')
+  return anyOk
 }
 
 function registerShortcuts(): void {
@@ -644,6 +669,7 @@ app.whenReady().then(() => {
   }
   createWindow()
   setInterval(checkDailyReminder, 30000)
+  applyCopyWatch()
 
   app.on('activate', () => {
     // macOS：Dock 点击时若有窗口则显示，否则重建
