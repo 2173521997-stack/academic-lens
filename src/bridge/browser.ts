@@ -194,6 +194,7 @@ export function createBrowserBridge(): Bridge {
       } catch {
         /* 忽略 */
       }
-    }
+    },
+    debugLog: (msg) => console.log('[debug]', msg)
   }
 }

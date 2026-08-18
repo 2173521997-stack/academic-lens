@@ -9,6 +9,8 @@ import {
   clipboard,
   systemPreferences,
   Notification,
+  Tray,
+  nativeImage,
   type WebContents,
   type Rectangle,
   type MenuItemConstructorOptions
@@ -54,6 +56,7 @@ function getState(): WindowState {
 }
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
 const abortControllers = new Map<string, AbortController>()
 let boundsTimer: NodeJS.Timeout | null = null
 let isQuitting = false
@@ -277,6 +280,60 @@ function createWindow(): void {
   }
 }
 
+/** 调试日志：写入系统临时目录 al-debug.log（排障用，发布可保留无副作用） */
+function debugLog(msg: string): void {
+  try {
+    fs.appendFileSync(path.join(app.getPath('temp'), 'al-debug.log'), `${new Date().toISOString()} ${msg}\n`)
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 唤起小窗（托盘/热键共用）：切 mini → 显示 → 聚焦 */
+function showMiniWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (getState().mode === 'full') applyMode('mini')
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+/** 系统托盘：随时可唤回小窗（热键被系统/输入法吞掉时的终极兜底） */
+const TRAY_ICON_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAHGSURBVFhH7ZYhTwNBEIVXViKRyMrKykokEllZWUFCd5vQOmQFEgGuhuQQJFVI0p/QoJpgKpG4GfLuUsjO3N7dHreOl3zi2tmd2Z2Z3TXmX23leGDmPPoB30m14J5xPDaO1sbSl3HM5VBmHE3Mgk/kFO2FCR0dtLMKLH2aGU3zwFsLq7C0VZNHQTtzzWdy6nphkKO9nrAF2A3USWNh5V05P4IgLPelKy3k7M/bHoL29cWJwlEDO2ROK+nyV3mrRVZ7LGjhKz6Vrgvl7VYyqHPoVrou5GijjVNAO+n62PMVJ5ymv2Ie3TMP7vR/taiOcDRURhVMX9jT6k3bVGL5wg8AP0ijAFh5mc4ftW0QdJuniAKcPEvXhZav2jaI5aUfgKVLZRQAeS/T+EnbBrE88wMo7nRtGGDz7jvffjD3brRdECzYEw4HaVQDUoFtR0FGOc+hoR8AlOwOkNBBui6EwlDGCbD0IF0XQhoiD6OWVLwfcVvpAR1CmXTpKy/GRDcidlcdwWVChaZIhWq9KsG4yyDUyddEOJzwlpOTxZBve8zKpYqaWKuJG0FZs5w3EVoH/VtXoPmO0TruGR4rFCmuU+T1CL6TOk2kb0G/WOqP3ayeAAAAAElFTkSuQmCC'
+
+function createTray(): void {
+  if (tray) return
+  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_B64}`)
+  tray = new Tray(icon.resize({ width: 16, height: 16 }))
+  tray.setToolTip('Academic Lens · 学术透镜')
+  const rebuildMenu = (): void => {
+    const copyWatch = store.get<{ copyWatch?: boolean }>('settings', {}).copyWatch === true
+    tray?.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: '打开小窗翻译', click: showMiniWindow },
+        { type: 'separator' },
+        {
+          label: '复制即译（任意应用 Ctrl+C 即翻译）',
+          type: 'checkbox',
+          checked: copyWatch,
+          click: (item) => {
+            const cfg = store.get<Record<string, unknown>>('settings', {})
+            store.set('settings', { ...cfg, copyWatch: item.checked })
+            applyCopyWatch()
+            rebuildMenu()
+          }
+        },
+        { type: 'separator' },
+        { label: '设置…', click: () => { showMiniWindow(); sendToWindow('open:settings') } },
+        { label: '退出', click: () => app.quit() }
+      ])
+    )
+  }
+  rebuildMenu()
+  tray.on('click', showMiniWindow)
+}
+
 function registerIpc(): void {
   ipcMain.handle('app:info', () => ({
     platform: process.platform,
@@ -386,17 +443,9 @@ function registerIpc(): void {
   // 当前生效的一键翻译触发键
   ipcMain.handle('shortcut:accel', () => selectionAccel)
 
-  // 一键翻译自检：模拟热键流程（若自家窗口聚焦先隐藏），返回剪贴板取词结果
+  // 一键翻译自检：模拟热键流程，返回剪贴板取词结果
   ipcMain.handle('selection:test', async () => {
-    if (mainWindow && mainWindow.isVisible() && mainWindow.isFocused()) {
-      mainWindow.hide()
-      await new Promise((r) => setTimeout(r, 300))
-    }
     const r = await grabSelection({ onOwnWrite: markOwnClipboardWrite })
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      mainWindow.show()
-      mainWindow.focus()
-    }
     return { text: r.text || null, error: r.error ?? null, accel: registeredAccels.join(' · ') || selectionAccel }
   })
 
@@ -505,6 +554,11 @@ function registerIpc(): void {
       markOwnClipboardWrite()
     }
   })
+
+  // 渲染层调试日志
+  ipcMain.on('debug:log', (_e, msg: string) => {
+    debugLog(`[renderer] ${msg}`)
+  })
 }
 
 /**
@@ -519,12 +573,12 @@ function registerSelectionShortcut(): boolean {
   for (const acc of candidates) {
     const ok = globalShortcut.register(acc, () => {
       if (!mainWindow) return
+      debugLog(`HOTKEY fired: ${acc}, visible=${mainWindow.isVisible()}, focused=${mainWindow.isFocused()}, mode=${getState().mode}`)
       void (async () => {
-        if (mainWindow.isVisible() && mainWindow.isFocused()) {
-          mainWindow.hide()
-          await new Promise((r) => setTimeout(r, 300))
-        }
+        // 不判断焦点（Windows 上 isFocused() 与实际前台窗口可能不一致）：
+        // 无条件取词——前台是外部应用则成功；是自家窗口且无选中则自然提示
         const r = await grabSelection({ onOwnWrite: markOwnClipboardWrite })
+        debugLog(`grab result: textLen=${r.text?.length ?? 0}, error=${r.error ?? 'none'}`)
         if (!mainWindow || mainWindow.isDestroyed()) return
         if (getState().mode === 'full') applyMode('mini')
         mainWindow.show()
@@ -543,17 +597,11 @@ function registerSelectionShortcut(): boolean {
 }
 
 function registerShortcuts(): void {
-  // 唤起 / 隐藏小窗：唤起时同步聚焦输入框并切到单词界面，复制内容后 Cmd/Ctrl+V 粘贴即查词
+  // 唤起小窗：永远显示+聚焦输入框（不再"可见即隐藏"，避免误按后窗口消失的困惑；隐藏走 Esc/托盘）
   const okT = globalShortcut.register('CommandOrControl+Shift+T', () => {
     if (!mainWindow) return
-    if (!mainWindow.isVisible() || getState().mode === 'full') {
-      if (getState().mode === 'full') applyMode('mini')
-      mainWindow.show()
-      mainWindow.focus()
-      mainWindow.webContents.send('mini:focus-input')
-      return
-    }
-    mainWindow.hide()
+    showMiniWindow()
+    mainWindow.webContents.send('mini:focus-input')
   })
   shortcutStatus.toggle = okT
   if (!okT) console.error('[shortcut] CmdOrCtrl+Shift+T 注册失败（可能被占用）')
@@ -668,6 +716,7 @@ app.whenReady().then(() => {
     })
   }
   createWindow()
+  createTray()
   setInterval(checkDailyReminder, 30000)
   applyCopyWatch()
 

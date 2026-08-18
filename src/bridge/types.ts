@@ -70,6 +70,7 @@ export interface Bridge {
   onMaximized: (cb: (max: boolean) => void) => () => void
   openExternal: (url: string) => Promise<unknown>
   copyText: (text: string) => void
+  debugLog: (msg: string) => void
 }
 
 declare global {

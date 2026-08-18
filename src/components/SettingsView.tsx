@@ -568,7 +568,7 @@ export default function SettingsView(): React.JSX.Element {
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[13px]">唤起 / 隐藏小窗（并聚焦输入框）</span>
+            <span className="text-[13px]">唤起小窗（并聚焦输入框）</span>
             <div className="flex items-center gap-2">
               {shortcutState && <StatusChip ok={shortcutState.toggle} text={shortcutState.toggle ? '已注册' : '未注册'} />}
               <kbd className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
@@ -652,10 +652,13 @@ export default function SettingsView(): React.JSX.Element {
             </div>
           </div>
           <p className="text-[11px] leading-relaxed text-ink-3">
-            一键翻译：在任意 App 选中单词或句子，按 {isMac ? '⌘X' : 'Alt+X / Ctrl+Alt+X / Ctrl+Shift+X（已全部注册，任一可触发）'} 即自动完成「复制 → 唤起小窗 → 翻译」，
-            单词显示音标释义与例句，中文自动译成英文；选中文字不足时提示重新选择。
+            使用方式：先在任意应用（浏览器 / Word / PDF）里选中单词或句子（焦点须在该应用上），再按{' '}
+            {isMac ? '⌘X' : 'Alt+X / Ctrl+Alt+X / Ctrl+Shift+X（已全部注册，任一可触发）'}
+            即自动「复制 → 唤起小窗 → 翻译」；小窗自身聚焦时按它会提示先选词。
             <br />
-            仅唤起：按 {isMac ? '⌘⇧T' : 'Ctrl+Shift+T'} 唤起小窗并聚焦输入框，自己 Cmd/Ctrl+V 粘贴。
+            唤起小窗：按 {isMac ? '⌘⇧T' : 'Ctrl+Shift+T'}；或点击系统托盘图标随时唤回。
+            <br />
+            若快捷键始终无反应：打开上方「复制即译」，在任意应用 Ctrl+C 复制即可自动翻译。
           </p>
           <p className="text-[11px] text-ink-3">
             当前平台：{platform || '…'} · 快捷键在 Windows 与 macOS 上自动适配（⌘ / Ctrl）

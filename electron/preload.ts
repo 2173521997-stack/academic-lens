@@ -109,7 +109,8 @@ const bridge = {
   isMaximized: () => ipcRenderer.invoke('win:isMaximized') as Promise<boolean>,
   onMaximized: (cb: (max: boolean) => void) => subscribe('win:maximized', cb),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
-  copyText: (text: string) => ipcRenderer.send('clipboard:write', text)
+  copyText: (text: string) => ipcRenderer.send('clipboard:write', text),
+  debugLog: (msg: string) => ipcRenderer.send('debug:log', msg)
 }
 
 contextBridge.exposeInMainWorld('bridge', bridge)

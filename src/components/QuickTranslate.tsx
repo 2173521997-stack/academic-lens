@@ -78,9 +78,13 @@ export default function QuickTranslate(): React.JSX.Element {
     (text: string, explicitMode?: QuickMode, forceLlm = false): void => {
       const t = text.trim()
       const m = explicitMode ?? mode
-      if (!t || streamingRef.current) return
+      if (!t || streamingRef.current) {
+        window.bridge.debugLog(`run skipped: empty=${!t} streaming=${streamingRef.current}`)
+        return
+      }
       // 自动检测：含中文一律走中译英（词→词卡，句→直译）；润色模式显式指定，不自动分流
       const eff: QuickMode = m === 'polish' ? 'polish' : isCn(t) ? 'cn2en' : m
+      window.bridge.debugLog(`run start: text="${t.slice(0, 40)}" mode=${eff}`)
       streamingRef.current = true
       setStreaming(true)
       setError(null)
@@ -99,6 +103,7 @@ export default function QuickTranslate(): React.JSX.Element {
             void loadRecents().then(setRecents)
           },
           onNotFound: (word) => {
+            window.bridge.debugLog(`lookup notFound: ${word}`)
             streamingRef.current = false
             setStreaming(false)
             setResult('')
@@ -106,6 +111,7 @@ export default function QuickTranslate(): React.JSX.Element {
           },
           onSuggestion: (s) => setSuggestion(s),
           onError: (err) => {
+            window.bridge.debugLog(`lookup error: ${err}`)
             streamingRef.current = false
             setError(err)
             setStreaming(false)
@@ -136,6 +142,7 @@ export default function QuickTranslate(): React.JSX.Element {
   useEffect(() => {
     const offText = window.bridge.onSelectionText((text) => {
       const t = text.trim()
+      window.bridge.debugLog(`onSelectionText received: "${t.slice(0, 40)}" len=${t.length}`)
       if (!t) return
       const isWord = /^[A-Za-z][A-Za-z'-]{1,45}$/.test(t)
       // UI 固定在单词页面；prompt 仍按内容分流（词→词典词卡，句→翻译）
