@@ -8,7 +8,7 @@ import { aiGradeWords } from './flashcard'
 import { aiOrganize } from './organize'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useWordbookStore } from '../stores/wordbookStore'
-import { executeTool, TOOLS, type ToolId } from './agentTools'
+import { executeTool, TOOLS, type ToolId, type ToolOutput } from './agentTools'
 import { useNoticeStore } from '../stores/noticeStore'
 import { useHistoryStore } from '../stores/historyStore'
 
@@ -29,6 +29,8 @@ export const REACT_MAX_STEPS = 6
 export interface AgentStep {
   /** 该步决策：调用了哪个工具 / 是否收尾 */
   kind: 'tool' | 'done'
+  /** 工具 id（kind=tool，供续做建议映射） */
+  toolId?: ToolId
   /** 工具名（kind=tool） */
   toolLabel?: string
   /** 是否副作用工具 */
@@ -41,6 +43,17 @@ export interface AgentLoopOptions {
   /** 每执行一步工具后的回调（供 UI 展示） */
   onStep?: (step: AgentStep) => void
   maxSteps?: number
+  /** 工具执行前钩子：返回 false 表示该工具被挂起（需用户二次确认），循环立即结束并返回 blocked */
+  onTool?: (toolId: ToolId, params: Record<string, string>) => boolean
+  /** 高模型产出的初步计划，注入首轮决策上下文（决策规划分层） */
+  plan?: string
+}
+
+export interface ReActResult {
+  answer: string
+  steps: AgentStep[]
+  /** 因需用户确认而被挂起的工具（此时 answer 为空） */
+  blocked?: { toolId: ToolId; params: Record<string, string> }
 }
 
 /** 轻量同步工具：直接复用 executeTool 的同步返回；重型工具为 async 专属实现 */
@@ -62,7 +75,7 @@ function wordbookContextText(): string {
 }
 
 /** 执行单个工具并返回结果文本（awaitable）。light 同步；heavy 异步真实结果。 */
-export async function runTool(id: ToolId, params: Record<string, string>): Promise<{ text: string; notFound?: boolean }> {
+export async function runTool(id: ToolId, params: Record<string, string>): Promise<ToolOutput> {
   const tool = TOOLS.find((t) => t.id === id)
   if (!tool) return { text: `未知工具：${id}` }
 
@@ -72,21 +85,36 @@ export async function runTool(id: ToolId, params: Record<string, string>): Promi
       return { text: await heavyWordLookup(params.word ?? '') }
     case 'grade_word':
       return { text: await heavyGrade(params.word ?? '') }
-    case 'organize_words':
-      return { text: await heavyOrganize(params.mode) }
+    case 'organize_words': {
+      const r = await heavyOrganize(params.mode)
+      return { text: r.text, digest: r.digest }
+    }
     case 'wordbook_add':
       return { text: await heavyWordbookAdd(params) }
     case 'doc_export':
       return { text: await heavyDocExport() }
-    case 'history_search':
-      return { text: await heavyHistorySearch(params.keyword ?? params.text ?? '') }
+    case 'history_search': {
+      const r = await heavyHistorySearch(params.keyword ?? params.text ?? '')
+      return { text: r.text, digest: r.digest }
+    }
     default: {
       // 轻量：走既有同步 executor
       const out = executeTool(id, params)
-      if (out.asyncStarted) return { text: out.text || '（已完成）' }
-      return { text: out.text }
+      const text = out.text || (out.asyncStarted ? '（已完成）' : '')
+      // 大结果工具：为决策回填生成结构化摘要，避免长文本截断导致 LLM 误判
+      return { text, digest: out.digest ?? (text ? makeDigest(id, text) : undefined) }
     }
   }
+}
+
+/** 为「结果可能很长」的工具生成供决策用的紧凑摘要；短结果返回 undefined 走截断兜底 */
+function makeDigest(id: ToolId, text: string): string | undefined {
+  if (id === 'wordbook_list' || id === 'wordbook_summary') {
+    const lines = text.split('\n').filter((l) => l.trim())
+    if (lines.length > 8) return `共 ${lines.length} 行概览，前 6 行：\n${lines.slice(0, 6).join('\n')}\n…（共 ${lines.length} 行）`
+  }
+  if (id === 'report' && text.length > 500) return text.slice(0, 500) + '\n…（周报正文较长，回复用户时保留要点即可）'
+  return undefined
 }
 
 /* ---------------- 重型工具实现（可 await） ---------------- */
@@ -104,12 +132,12 @@ async function heavyWordLookup(word: string): Promise<string> {
   if (st.lookupSource === 'dict' && st.dictApiKey) {
     try {
       const res = await dictLookup(w, st.dictApiKey)
-      if (res && !res.notFound) return hint + formatUapisCard(res)
+      if (res && !res.notFound) return hint + '〔来源：uapis 词典〕\n' + formatUapisCard(res)
       if (res?.notFound) {
         // 后置纠错：词典 miss → 问一次小模型拿拼写建议（仅失败路径成本）
         const sp = await suggestSpelling(w)
         const spHint = sp && sp !== w ? `（你是不是想查「${sp}」？）` : ''
-        return `「${w}」未收录于词典（可能拼写有误）${spHint}${hint}` +
+        return `〔来源：uapis 词典，未收录〕\n「${w}」未收录于词典（可能拼写有误）${spHint}${hint}` +
           `。可先用 AI 查词看看，或点击建议词改用正确拼写。`
       }
       // 服务失败 → 回退 AI
@@ -126,7 +154,7 @@ async function heavyWordLookup(word: string): Promise<string> {
       duration: 5000
     })
   }
-  return hint + (await lookupWordViaAI(w))
+  return hint + '〔来源：AI 词卡〕\n' + (await lookupWordViaAI(w))
 }
 
 /** 纯 AI 词卡（与 store 内 lookupWordViaAI 同构，供循环内复用） */
@@ -153,32 +181,51 @@ async function lookupWordViaAI(word: string): Promise<string> {
   }
 }
 
-/** 批量分级 */
+/** 批量分级（输出后置校验：全空或未识别则自愈重试一次） */
 async function heavyGrade(wordsRaw: string): Promise<string> {
   const words = wordsRaw.split(/[\s,，;；、]+/).filter((w) => /^[A-Za-z][A-Za-z'-]{1,45}$/.test(w)).slice(0, 12)
   if (!words.length) return '请提供要分级的英文单词。'
-  try {
-    const res = await aiGradeWords(words)
-    return res.length ? res.map((r) => `${r.word} → ${r.raw || '未识别'}`).join('\n') : '未能识别这些单词。'
-  } catch (e) {
-    return `分级失败：${e instanceof Error ? e.message : String(e)}`
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await aiGradeWords(words)
+      const valid = res.filter((r) => r.word && r.raw)
+      if (valid.length) return valid.map((r) => `${r.word} → ${r.raw || '未识别'}`).join('\n')
+      // 全空 / 未识别 → 再试一次
+    } catch (e) {
+      if (attempt === 1) return `分级失败：${e instanceof Error ? e.message : String(e)}`
+    }
   }
+  return '未能识别这些单词（已重试一次）。'
 }
 
-/** 整理生词 */
-async function heavyOrganize(modeRaw?: string): Promise<string> {
+/** 整理生词（输出后置校验 + 结构化摘要回填） */
+async function heavyOrganize(modeRaw?: string): Promise<{ text: string; digest?: string }> {
   const mode = (modeRaw ?? 'synonym') as Parameters<typeof aiOrganize>[1]
   const words = useWordbookStore.getState().words
-  if (!words.length) return '生词本是空的，先收藏一些单词再整理。'
-  try {
-    const res = await aiOrganize(words, mode)
-    if (res.error) return `整理失败：${res.error}`
-    return res.clusters.length
-      ? res.clusters.map((c) => `· ${c.name}（${c.words.length} 词）：${c.words.map((w) => w.word).join('、')}`).slice(0, 12).join('\n')
-      : '未能生成分组。'
-  } catch (e) {
-    return `整理失败：${e instanceof Error ? e.message : String(e)}`
+  if (!words.length) return { text: '生词本是空的，先收藏一些单词再整理。' }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await aiOrganize(words, mode)
+      if (res.error) {
+        if (attempt === 1) return { text: `整理失败：${res.error}` }
+        continue
+      }
+      if (res.clusters.length) {
+        const text = res.clusters.map((c) => `· ${c.name}（${c.words.length} 词）：${c.words.map((w) => w.word).join('、')}`).slice(0, 12).join('\n')
+        const digest =
+          res.clusters.length > 4
+            ? `整理出 ${res.clusters.length} 组（前 4）：\n` +
+              res.clusters.slice(0, 4).map((c) => `· ${c.name}（${c.words.length} 词）`).join('\n') +
+              '\n…'
+            : undefined
+        return { text, digest }
+      }
+      // 空分组 → 再试一次
+    } catch (e) {
+      if (attempt === 1) return { text: `整理失败：${e instanceof Error ? e.message : String(e)}` }
+    }
   }
+  return { text: '未能生成分组（已重试一次）。' }
 }
 
 /** 导出译文 */
@@ -190,13 +237,14 @@ async function heavyDocExport(): Promise<string> {
 }
 
 /** 历史检索：按关键词查找历史摘要与文档译文 */
-async function heavyHistorySearch(keyword: string): Promise<string> {
+async function heavyHistorySearch(keyword: string): Promise<{ text: string; digest?: string }> {
   const kw = keyword.trim()
-  if (!kw) return '请在历史检索中提供关键词（如文档名「独立宣言」）。'
+  if (!kw) return { text: '请在历史检索中提供关键词（如文档名「独立宣言」）。' }
   try {
-    return await useHistoryStore.getState().searchRecords(kw)
+    const text = await useHistoryStore.getState().searchRecords(kw)
+    return { text, digest: text.length > 400 ? text.slice(0, 400) : undefined }
   } catch (e) {
-    return `历史检索失败：${e instanceof Error ? e.message : String(e)}`
+    return { text: `历史检索失败：${e instanceof Error ? e.message : String(e)}` }
   }
 }
 
@@ -299,23 +347,38 @@ function isFinalAnswer(decision: ReActDecision): boolean {
 export async function runReAct(
   userText: string,
   opts: AgentLoopOptions = {}
-): Promise<{ answer: string; steps: AgentStep[] }> {
+): Promise<ReActResult> {
   const maxSteps = opts.maxSteps ?? REACT_MAX_STEPS
   const steps: AgentStep[] = []
-  // 初始用户输入作为第一轮 user 消息
+  // 初始用户输入作为第一轮 user 消息（可携带高模型产出的初步计划）
   const seed: LLMMessage[] = [
     { role: 'system', content: REACT_SYS() },
-    { role: 'user', content: userText }
+    {
+      role: 'user',
+      content: opts.plan
+        ? `请参考以下高模型给出的初步计划执行，可依据工具实际返回灵活调整：\n${opts.plan}\n\n用户请求：${userText}`
+        : userText
+    }
   ]
   let messages: LLMMessage[] = seed
 
   let answer = ''
+  let parseFails = 0
   for (let i = 0; i < maxSteps; i++) {
     const decRaw = await agentComplete(messages, { temperature: 0, maxTokens: 1024, json: true })
     const decision = extractJsonObj(await decRaw.promise)
     if (!decision) {
-      answer = '智能体解析失败，请换个说法再试。'
-      break
+      // 自愈：JSON 解析失败时把错误回填给 LLM 重新决策，最多重试 1 次，避免白白耗尽步数
+      parseFails++
+      if (parseFails >= 2) {
+        answer = '智能体解析失败，请换个说法再试。'
+        break
+      }
+      messages = [
+        ...messages,
+        { role: 'user', content: '错误：你上一次的输出不是合法 JSON。请只输出 {"tool":"<工具id>","params":{...}} 或 {"done":true,"answer":"..."}，不要输出任何其他文字。' }
+      ]
+      continue
     }
 
     // 收尾
@@ -334,16 +397,17 @@ export async function runReAct(
       continue
     }
     const params = decision.params ?? {}
+    // 二次确认挂起：破坏性工具先不执行，把决策交回调用方请求用户确认
+    if (opts.onTool?.(toolId, params) === false) {
+      return { answer: '', steps, blocked: { toolId, params } }
+    }
     const result = await runTool(toolId, params)
-    const step: AgentStep = { kind: 'tool', toolLabel: tool.name, sideEffect: tool.sideEffect, observation: result.text }
+    const step: AgentStep = { kind: 'tool', toolId, toolLabel: tool.name, sideEffect: tool.sideEffect, observation: result.text }
     steps.push(step)
     opts.onStep?.(step)
-    if (result.notFound) {
-      messages = [...messages, { role: 'user', content: `工具「${tool.name}」执行说明：${result.text}` }]
-      continue
-    }
-    // 回填观察：角色为 user 的伪 "工具结果"，引导继续决策
-    const observation = `${tool.name} 执行结果：\n${result.text.slice(0, 800)}`
+    // 回填观察：优先用结构化摘要（digest），避免大结果被截断导致决策失真
+    const digest = result.digest ?? result.text
+    const observation = `${tool.name} 执行结果：\n${digest.slice(0, 800)}`
     messages = [...messages, { role: 'user', content: `工具「${tool.name}」执行完毕，结果如下：\n${observation}\n请根据该结果决定下一步：继续调用工具，或给出最终回答。` }]
   }
 

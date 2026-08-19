@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  Bot, Send, Square, Trash2, Wrench, ShieldCheck,
+  Bot, Send, Square, Trash2, Wrench, ShieldCheck, AlertTriangle,
   BookOpen, FileText, BadgeCheck, User, Settings, Monitor, TerminalSquare, Plus, X, Paperclip
 } from 'lucide-react'
 import { marked } from 'marked'
@@ -14,6 +14,7 @@ import { toast } from '../stores/noticeStore'
 import { parseAnyFile, makeSegment } from '../lib/parse'
 import { recognizeClipboardImage } from '../lib/ocr'
 import { TOOLS, type ToolId, type ToolCategory } from '../lib/agentTools'
+import { isDue } from '../lib/srs'
 import EmptyState from './EmptyState'
 
 /** 按 6 类工具组织的快捷入口，方便用户发现能力 */
@@ -76,7 +77,50 @@ const INSTANT_SKILLS: ReadonlySet<ToolId> = new Set<ToolId>([
   'wordbook_list'
 ])
 
+/** 错误边界：对话区渲染异常时给出兜底而非白屏（借鉴 1.md 的状态响应式避坑） */
+class AgentErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; message: string }> {
+  state = { hasError: false, message: '' }
+
+  static getDerivedStateFromError(err: unknown): { hasError: boolean; message: string } {
+    return { hasError: true, message: err instanceof Error ? err.message : String(err) }
+  }
+
+  render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-danger/10 text-danger">
+            <AlertTriangle size={22} />
+          </span>
+          <p className="text-[13px] font-medium text-ink-1">智能体面板渲染出错</p>
+          <p className="max-h-24 max-w-md overflow-y-auto break-words text-[11px] text-ink-3 select-text">
+            {this.state.message}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <button className="btn btn-primary" onClick={() => useAgentStore.getState().clear()}>
+              <Trash2 size={12} /> 清空对话
+            </button>
+            <button className="btn btn-ghost" onClick={() => this.setState({ hasError: false, message: '' })}>
+              重试
+            </button>
+          </div>
+          <p className="text-[10px] text-ink-3">若反复出现，可先「清空对话」排除问题消息。</p>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function AgentView(): React.JSX.Element {
+  return (
+    <AgentErrorBoundary>
+      <AgentViewInner />
+    </AgentErrorBoundary>
+  )
+}
+
+function AgentViewInner(): React.JSX.Element {
   const messages = useAgentStore((s) => s.messages)
   const streaming = useAgentStore((s) => s.streaming)
   const input = useAgentStore((s) => s.input)
@@ -91,7 +135,12 @@ export default function AgentView(): React.JSX.Element {
   const fileDoc = useFileStore((s) => s.doc)
   const wordbookWords = useWordbookStore((s) => s.words)
   const appendInput = useAgentStore((s) => s.appendInput)
+  const pendingConfirm = useAgentStore((s) => s.pendingConfirm)
+  const answerConfirm = useAgentStore((s) => s.answerConfirm)
   const [skillsOpen, setSkillsOpen] = useState(false)
+
+  /** 到期复习提醒：生词本中已到复习期的单词数 */
+  const dueCount = wordbookWords.filter((w) => w.srs && w.srs.reps > 0 && isDue(w.srs, Date.now())).length
 
   /** 技能可用性：依据当前环境（文档是否打开 / 生词本是否为空 / 词典 Key 等）判定并给出人性化原因 */
   const skillState = (toolId: ToolId): { disabled: boolean; reason?: string } => {
@@ -200,11 +249,20 @@ export default function AgentView(): React.JSX.Element {
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-5">
         <div className="mx-auto max-w-2xl space-y-3">
           {!messages.length ? (
-            <EmptyState
-              icon={Bot}
-              title="你好，我可以用一句话帮你做事"
-              hint={`我能：查词分级、整理生词、总结文档、导出生词命中、生成周报与核查、设目标、跳转页面、切换查词、朗读、打开链接。\n若未配置，请先到「设置 → 智能体」填入 GLM-4-flash API Key。`}
-            />
+            <>
+              <EmptyState
+                icon={Bot}
+                title="你好，我可以用一句话帮你做事"
+                hint={`我能：查词分级、整理生词、总结文档、导出生词命中、生成周报与核查、设目标、跳转页面、切换查词、朗读、打开链接。\n若未配置，请先到「设置 → 智能体」填入 GLM-4-flash API Key。`}
+              />
+              {!hasAgentApi && (
+                <div className="flex justify-center pt-1">
+                  <button className="btn btn-primary !px-4 !py-2 text-[12px]" onClick={() => go('settings')}>
+                    <Settings size={12} /> 去设置配置智能体
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             messages.map((m) => (
               <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
@@ -236,6 +294,34 @@ export default function AgentView(): React.JSX.Element {
                     />
                   )}
                   {m.error && <p className="mt-1 text-[10px] text-danger">{m.error}</p>}
+                  {!m.error && pendingConfirm?.msgId === m.id && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        className="btn btn-primary !px-3 !py-1 text-[11px]"
+                        disabled={streaming}
+                        onClick={() => answerConfirm(true)}
+                      >
+                        确认执行
+                      </button>
+                      <button
+                        className="btn btn-ghost !px-3 !py-1 text-[11px]"
+                        disabled={streaming}
+                        onClick={() => answerConfirm(false)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  )}
+                  {m.followUps && m.followUps.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] text-ink-3">接着：</span>
+                      {m.followUps.map((f) => (
+                        <button key={f} className="chip cursor-pointer transition hover:brightness-95" onClick={() => send(f)}>
+                          {f}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))
@@ -270,6 +356,14 @@ export default function AgentView(): React.JSX.Element {
       </div>
 
       <div className="shrink-0 border-t border-line p-3">
+        {dueCount > 0 && (
+          <div className="mx-auto mb-2 flex max-w-2xl items-center justify-between gap-2 rounded-lg border border-accent/30 bg-accent-soft/60 px-3 py-1.5">
+            <span className="text-[11px] text-accent">有 {dueCount} 个单词到复习期</span>
+            <button className="btn btn-ghost !px-2 !py-0.5 text-[10px]" onClick={() => go('flashcard')}>
+              去复习
+            </button>
+          </div>
+        )}
         {(wordbookWords.length > 0 || fileDoc) && (
           <div className="mx-auto mb-2 flex max-w-2xl flex-wrap items-center gap-1">
             {fileDoc && (

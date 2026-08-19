@@ -106,6 +106,19 @@ export const TOOLS: AgentTool[] = [
 /** 允许访问的页面视图白名单 */
 const NAV_VIEWS = ['home', 'wordbook', 'flashcard', 'quotes', 'stats', 'history', 'settings'] as const
 
+/**
+ * 破坏性工具：执行前需用户二次确认（Human-in-the-Loop）。
+ * 只覆盖真正"改动数据 / 改设置 / 写文件 / 打开外部"的操作；
+ * 只读 / 轻量跳转 / 触发生成类不加确认，避免打断流畅体验。
+ */
+export const CONFIRM_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>([
+  'wordbook_add',
+  'set_lookup_source',
+  'set_goal',
+  'doc_export',
+  'open_external'
+])
+
 export interface ToolCall {
   tool: AgentTool
   params: Record<string, string>
@@ -128,6 +141,8 @@ function withinBounds(tool: AgentTool, params: Record<string, string>): boolean 
 
 export interface ToolOutput {
   text: string
+  /** 供智能体决策用的结构化摘要（给用户看的完整文本在 text）；缺省时观察端退化为截断 text */
+  digest?: string
   data?: unknown
   /** 是否异步发起并在稍后通过 sink 回填（此时返回文本为空） */
   asyncStarted?: boolean
