@@ -513,3 +513,51 @@ body {
   background: var(--accent);
   animation: caret-blink 0.9s infinite;
 }
+
+/* 学术 Markdown 渲染排版 */
+.academic-markdown {
+  word-break: break-word;
+}
+.academic-markdown p {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.academic-markdown p:first-child {
+  margin-top: 0;
+}
+.academic-markdown p:last-child {
+  margin-bottom: 0;
+}
+.academic-markdown strong {
+  font-weight: 600;
+  color: var(--ink-1);
+}
+.academic-markdown em {
+  font-style: italic;
+}
+.academic-markdown ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+.academic-markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.25rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+.academic-markdown li {
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
+}
+.academic-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+.dark .academic-markdown code {
+  background: rgba(255, 255, 255, 0.1);
+}

@@ -17,8 +17,11 @@ import {
   Languages,
   Feather,
   Sparkles,
-  CheckCheck
+  Lightbulb,
+  RotateCcw
 } from 'lucide-react'
+import { marked } from 'marked'
+import { sanitizeHtml } from '../lib/sanitize'
 import {
   quickTranslate,
   loadRecents,
@@ -76,7 +79,6 @@ export default function QuickTranslate(): React.JSX.Element {
   const [suggestion, setSuggestion] = useState<string | null>(null)
   const [recents, setRecents] = useState<QuickRecent[]>([])
   const [copied, setCopied] = useState(false)
-  const [copiedDraft, setCopiedDraft] = useState(false)
   const [opening, setOpening] = useState(false)
   const [showHistory, setShowHistory] = useState(true)
 
@@ -226,7 +228,6 @@ export default function QuickTranslate(): React.JSX.Element {
   // 输入防抖：针对长句输入，停止输入 450ms 自动触发
   useEffect(() => {
     if (!input.trim() || streamingRef.current) return
-    // 纯英文短词交由打字联想，不自动触发翻译
     if (/^[a-zA-Z]{1,20}$/.test(input.trim())) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => run(input), 450)
@@ -276,13 +277,7 @@ export default function QuickTranslate(): React.JSX.Element {
   const cnInput = isCn(input)
   const cn2enWord = cnInput && isCnWord(input)
   const wordCard = (mode === 'word' || cn2enWord) && result && !streaming ? parseWordCard(result) : null
-
-  // 提取润色定稿正文（用于一键只复制正文）
-  const polishedDraftText = useMemo(() => {
-    if (mode !== 'polish' || !result) return ''
-    const match = result.match(/### ✍️ 润色定稿\s*([\s\S]*?)(?=###|$)/)
-    return match ? match[1].trim() : result
-  }, [mode, result])
+  const activeStyleObj = POLISH_STYLES.find((x) => x.id === polishStyle)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col select-none">
@@ -418,7 +413,7 @@ export default function QuickTranslate(): React.JSX.Element {
         )}
       </div>
 
-      {/* 结果与展示区 */}
+      {/* 结果展示区 */}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {/* 错误提示 */}
         {error && (
@@ -478,7 +473,7 @@ export default function QuickTranslate(): React.JSX.Element {
               {mode === 'word'
                 ? '正在查询单词与学术例句…'
                 : mode === 'polish'
-                ? `正在按「${POLISH_STYLES.find((x) => x.id === polishStyle)?.label}」风格润色…`
+                ? `正在按「${activeStyleObj?.label}」风格润色…`
                 : cnInput
                 ? '正在进行中译英学术严谨翻译…'
                 : '正在进行英译中学术严谨翻译…'}
@@ -524,72 +519,33 @@ export default function QuickTranslate(): React.JSX.Element {
             onTranslateSentence={cn2enWord ? undefined : () => run(input, 'translate')}
           />
         ) : result ? (
-          /* 2. 翻译 / 润色结果卡片 */
-          <div className="card p-3 animate-in fade-in">
-            <div className="mb-2 flex items-center justify-between border-b border-line/60 pb-1.5 text-[11px] text-ink-3">
-              <span className="flex items-center gap-1 font-medium text-accent">
-                {mode === 'polish' ? (
-                  <>
-                    <Feather size={12} />
-                    <span>学术润色定稿 · {POLISH_STYLES.find((x) => x.id === polishStyle)?.label}</span>
-                  </>
-                ) : (
-                  <>
-                    <Languages size={12} />
-                    <span>{cnInput ? '中译英 · 顶刊严谨学术译文' : '英译中 · 领域学术规范译文'}</span>
-                  </>
-                )}
-              </span>
-            </div>
-
-            <div className={`select-text whitespace-pre-wrap text-[13px] leading-relaxed text-ink-1 ${streaming ? 'stream-caret' : ''}`}>
-              {result}
-            </div>
-
-            {!streaming && (
-              <div className="mt-2.5 flex items-center justify-between border-t border-line/60 pt-2 text-[11px]">
-                <div className="flex items-center gap-1">
-                  <button
-                    className="btn btn-ghost !px-2 !py-1 text-[11px]"
-                    onClick={() => window.bridge.speak(polishedDraftText || result)}
-                    title="朗读"
-                  >
-                    <Volume2 size={11} /> 朗读
-                  </button>
-                  <button
-                    className="btn btn-ghost !px-2 !py-1 text-[11px]"
-                    onClick={() => {
-                      window.bridge.copyText(result)
-                      setCopied(true)
-                      toast('success', '已复制完整内容', '剪贴板')
-                      setTimeout(() => setCopied(false), 1500)
-                    }}
-                  >
-                    {copied ? <span className="text-ok flex items-center gap-0.5"><Check size={11} /> 已复制</span> : <span className="flex items-center gap-0.5"><Copy size={11} /> 复制全部</span>}
-                  </button>
-                  {mode === 'polish' && (
-                    <button
-                      className="btn !bg-accent !text-white !px-2 !py-1 text-[11px]"
-                      onClick={() => {
-                        window.bridge.copyText(polishedDraftText)
-                        setCopiedDraft(true)
-                        toast('success', '已复制润色定稿纯文本', '剪贴板')
-                        setTimeout(() => setCopiedDraft(false), 1500)
-                      }}
-                      title="只复制润色后的英文正文定稿，方便直接粘贴到论文中"
-                    >
-                      {copiedDraft ? <span className="flex items-center gap-0.5"><CheckCheck size={11} /> 已复制定稿</span> : <span className="flex items-center gap-0.5"><Copy size={11} /> 仅复制定稿</span>}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          /* 2. 润色模式结果 vs 翻译模式结果 */
+          mode === 'polish' ? (
+            <PolishResultCard
+              raw={result}
+              streaming={streaming}
+              styleLabel={activeStyleObj?.label ?? '顶刊规范'}
+              onSpeak={(t) => window.bridge.speak(t)}
+            />
+          ) : (
+            <TranslateResultCard
+              result={result}
+              streaming={streaming}
+              cnInput={cnInput}
+              onSpeak={(t) => window.bridge.speak(t)}
+              onCopy={(t) => {
+                window.bridge.copyText(t)
+                setCopied(true)
+                toast('success', '已复制译文内容', '剪贴板')
+                setTimeout(() => setCopied(false), 1500)
+              }}
+              copied={copied}
+            />
+          )
         ) : (
           /* 3. 空白初始态：极简提示 + 快捷键速览 */
           !streaming && (
             <div className="space-y-3 py-2 animate-in fade-in">
-              {/* 极简功能说明与快捷键 */}
               <div className="rounded-xl border border-line/70 bg-card/60 p-3 text-left">
                 <div className="flex items-center justify-between text-[11px] font-semibold text-ink-1">
                   <span className="flex items-center gap-1.5">
@@ -598,7 +554,6 @@ export default function QuickTranslate(): React.JSX.Element {
                   </span>
                 </div>
 
-                {/* 快捷键速查 */}
                 <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[10px] text-ink-2">
                   <div className="flex items-center justify-between rounded-lg bg-surface/80 px-2 py-1">
                     <span>划词秒翻</span>
@@ -618,7 +573,6 @@ export default function QuickTranslate(): React.JSX.Element {
                   </div>
                 </div>
 
-                {/* 常用试用范例 */}
                 {MODE_SAMPLES[mode]?.length > 0 && (
                   <div className="mt-2.5 border-t border-line/60 pt-2">
                     <span className="text-[10px] text-ink-3">点击填入试用范例：</span>
@@ -644,7 +598,7 @@ export default function QuickTranslate(): React.JSX.Element {
           )
         )}
 
-        {/* 4. 搜索历史记录（带一键入生词本） */}
+        {/* 4. 搜索历史记录 */}
         {!streaming && recents.length > 0 && (
           <div className="mt-3 border-t border-line/60 pt-2">
             <div className="mb-1.5 flex items-center justify-between">
@@ -874,3 +828,296 @@ function WordCard(props: {
     </div>
   )
 }
+
+/** 翻译模式结果展示卡片 */
+function TranslateResultCard(props: {
+  result: string
+  streaming: boolean
+  cnInput: boolean
+  onSpeak: (text: string) => void
+  onCopy: (text: string) => void
+  copied: boolean
+}): React.JSX.Element {
+  const { result, streaming, cnInput, onSpeak, onCopy, copied } = props
+  const html = useMemo(() => {
+    try {
+      return sanitizeHtml(marked.parse(result, { async: false }) as string)
+    } catch {
+      return result
+    }
+  }, [result])
+
+  return (
+    <div className="card p-3.5 animate-in fade-in select-text shadow-xs">
+      <div className="mb-2 flex items-center justify-between border-b border-line/60 pb-2 text-[11px] text-ink-3">
+        <span className="flex items-center gap-1.5 font-medium text-accent">
+          <Languages size={13} />
+          <span>{cnInput ? '中译英 · 顶刊严谨学术译文' : '英译中 · 领域学术规范译文'}</span>
+        </span>
+      </div>
+
+      <div
+        className={`text-[13.5px] leading-[1.8] text-ink-1 academic-markdown ${streaming ? 'stream-caret' : ''}`}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+
+      {!streaming && (
+        <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-2 text-[11px]">
+          <div className="flex items-center gap-1">
+            <button
+              className="btn btn-ghost !px-2 !py-1 text-[11px]"
+              onClick={() => onSpeak(result)}
+              title="朗读译文"
+            >
+              <Volume2 size={11} /> 朗读
+            </button>
+            <button
+              className="btn btn-ghost !px-2 !py-1 text-[11px]"
+              onClick={() => onCopy(result)}
+              title="复制译文"
+            >
+              {copied ? (
+                <span className="text-ok flex items-center gap-0.5"><Check size={11} /> 已复制</span>
+              ) : (
+                <span className="flex items-center gap-0.5"><Copy size={11} /> 复制译文</span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface PolishSectionData {
+  draft: string
+  suggestions: string[]
+  alternative: string
+}
+
+function parsePolishSections(text: string): PolishSectionData {
+  if (!text) return { draft: '', suggestions: [], alternative: '' }
+
+  const draftMatch = text.match(/###\s*[✍️✨]*\s*润色定稿\s*([\s\S]*?)(?=###|$)/i)
+  const sugMatch = text.match(/###\s*[💡🔍]*\s*改进要点[^\n]*\s*([\s\S]*?)(?=###|$)/i)
+  const altMatch = text.match(/###\s*[🔄备]*\s*变体[^\n]*\s*([\s\S]*?)(?=###|$)/i)
+
+  let draft = draftMatch ? draftMatch[1].trim() : ''
+  let suggestionsRaw = sugMatch ? sugMatch[1].trim() : ''
+  let alternative = altMatch ? altMatch[1].trim() : ''
+
+  if (!draft && !suggestionsRaw && !alternative) {
+    draft = text.trim()
+  }
+
+  const suggestions = suggestionsRaw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('-') || l.startsWith('*') || l.startsWith('•') || /^\d+\./.test(l))
+
+  return { draft, suggestions, alternative }
+}
+
+function parseSuggestionLine(line: string): { original?: string; replacement?: string; reason?: string; raw: string } {
+  let c = line.replace(/^[-*•\d.]+\s*/, '').trim()
+  c = c.replace(/^(?:\*\*|\*|`|)?原[表达词短语]*\s*(?:→|->)\s*替换建议(?:\*\*|\*|`|)?[\s:：]*/i, '')
+
+  const arrowMatch = c.match(
+    /^(?:(?:\*\*|\*|`|["'])(.*?)(?:\*\*|\*|`|["'])|([^\s:：→\->]+))\s*(?:→|->)\s*(?:(?:\*\*|\*|`|["'])(.*?)(?:\*\*|\*|`|["'])|([^\s:：(（]+))(?:[\s:：]+(.*)|(?:\s*[（(](.*)[）)]))?$/
+  )
+
+  if (arrowMatch) {
+    const original = (arrowMatch[1] ?? arrowMatch[2] ?? '').trim().replace(/^["'*`]+|["'*`]+$/g, '')
+    const replacement = (arrowMatch[3] ?? arrowMatch[4] ?? '').trim().replace(/^["'*`]+|["'*`]+$/g, '')
+    let reason = (arrowMatch[5] ?? arrowMatch[6] ?? '').trim()
+    reason = reason.replace(/^[（(]|[\)）]$/g, '').trim()
+
+    if (original && replacement && original !== '原表达' && original !== '原词') {
+      return { original, replacement, reason, raw: c }
+    }
+  }
+
+  return { raw: c }
+}
+
+/** 风格化润色结果展示卡片（卡片化分层排版 + 差异对照 + 一键定稿复制） */
+function PolishResultCard(props: {
+  raw: string
+  streaming: boolean
+  styleLabel: string
+  onSpeak: (text: string) => void
+}): React.JSX.Element {
+  const { raw, streaming, styleLabel, onSpeak } = props
+  const [copiedSection, setCopiedSection] = useState<string | null>(null)
+
+  const copyWithFeedback = (text: string, label: string): void => {
+    window.bridge.copyText(text)
+    setCopiedSection(label)
+    toast('success', `已复制${label}`, '剪贴板')
+    setTimeout(() => setCopiedSection(null), 1500)
+  }
+
+  const sections = useMemo(() => parsePolishSections(raw), [raw])
+
+  const draftHtml = useMemo(() => {
+    if (!sections.draft) return ''
+    try {
+      return sanitizeHtml(marked.parse(sections.draft, { async: false }) as string)
+    } catch {
+      return sections.draft
+    }
+  }, [sections.draft])
+
+  const altHtml = useMemo(() => {
+    if (!sections.alternative) return ''
+    try {
+      return sanitizeHtml(marked.parse(sections.alternative, { async: false }) as string)
+    } catch {
+      return sections.alternative
+    }
+  }, [sections.alternative])
+
+  const parsedSuggestions = useMemo(() => {
+    return sections.suggestions.map(parseSuggestionLine)
+  }, [sections.suggestions])
+
+  return (
+    <div className="space-y-3 animate-in fade-in select-text">
+      {/* 1. 润色定稿卡片 */}
+      <div className="rounded-xl border border-accent/25 bg-card/95 p-3.5 shadow-sm transition hover:border-accent/40">
+        <div className="mb-2 flex items-center justify-between border-b border-line/60 pb-2">
+          <span className="flex items-center gap-1.5 text-[12px] font-bold text-accent">
+            <Sparkles size={13} className="text-accent" />
+            <span>润色定稿 · {styleLabel}</span>
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              className="btn !bg-accent !text-white !px-2.5 !py-1 text-[11px] font-semibold shadow-xs hover:opacity-90 transition"
+              onClick={() => copyWithFeedback(sections.draft || raw, '润色定稿')}
+              title="仅复制润色后的英文正文定稿"
+            >
+              {copiedSection === '润色定稿' ? (
+                <span className="flex items-center gap-1"><Check size={11} /> 已复制定稿</span>
+              ) : (
+                <span className="flex items-center gap-1"><Copy size={11} /> 复制定稿</span>
+              )}
+            </button>
+            <button
+              className="btn btn-ghost !p-1 text-ink-3 hover:text-ink-1"
+              onClick={() => onSpeak(sections.draft || raw)}
+              title="朗读定稿"
+            >
+              <Volume2 size={13} />
+            </button>
+          </div>
+        </div>
+
+        {sections.draft ? (
+          <div
+            className={`text-[13.5px] leading-[1.8] text-ink-1 academic-markdown font-serif-reading ${streaming ? 'stream-caret' : ''}`}
+            dangerouslySetInnerHTML={{ __html: draftHtml }}
+          />
+        ) : (
+          <div className={`text-[13px] leading-relaxed text-ink-1 ${streaming ? 'stream-caret' : ''}`}>
+            {raw}
+          </div>
+        )}
+      </div>
+
+      {/* 2. 改进要点与用词建议卡片 */}
+      {parsedSuggestions.length > 0 && (
+        <div className="rounded-xl border border-line/70 bg-card/70 p-3 animate-in fade-in">
+          <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-ink-1 border-b border-line/50 pb-1.5">
+            <Lightbulb size={13} className="text-amber-500" />
+            <span>改进要点与用词精进</span>
+            <span className="text-[10px] font-normal text-ink-3">({parsedSuggestions.length} 处优化)</span>
+          </div>
+
+          <div className="space-y-2">
+            {parsedSuggestions.map((s, idx) => (
+              <div
+                key={idx}
+                className="rounded-lg border border-line/60 bg-surface/40 p-2.5 text-[11.5px] transition hover:border-accent/30"
+              >
+                {s.original && s.replacement ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="line-through text-red-500/90 bg-red-500/10 px-1.5 py-0.5 rounded font-mono text-[11px]">
+                        {s.original}
+                      </span>
+                      <span className="text-accent font-bold text-[11px]">➔</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded font-mono text-[11px]">
+                        {s.replacement}
+                      </span>
+                    </div>
+                    {s.reason && (
+                      <p className="mt-1 text-[11px] leading-relaxed text-ink-2 pl-0.5">
+                        <span className="font-medium text-accent">💡 理由：</span>
+                        {s.reason}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div
+                    className="leading-relaxed text-ink-2 academic-markdown"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(marked.parse(s.raw, { async: false }) as string) }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 3. 备选变体卡片 */}
+      {sections.alternative && (
+        <div className="rounded-xl border border-line/70 bg-card/70 p-3 animate-in fade-in">
+          <div className="mb-2 flex items-center justify-between border-b border-line/50 pb-1.5 text-[11px]">
+            <span className="flex items-center gap-1.5 font-semibold text-ink-2">
+              <RotateCcw size={12} className="text-accent" />
+              <span>备选变体句式</span>
+            </span>
+            <button
+              className="btn btn-ghost !px-2 !py-0.5 text-[10px] text-ink-3 hover:text-ink-1"
+              onClick={() => copyWithFeedback(sections.alternative, '备选变体')}
+              title="复制备选变体"
+            >
+              {copiedSection === '备选变体' ? (
+                <span className="flex items-center gap-0.5 text-ok"><Check size={10} /> 已复制</span>
+              ) : (
+                <span className="flex items-center gap-0.5"><Copy size={10} /> 复制变体</span>
+              )}
+            </button>
+          </div>
+          <div
+            className="text-[12.5px] leading-[1.7] text-ink-2 academic-markdown font-serif-reading"
+            dangerouslySetInnerHTML={{ __html: altHtml }}
+          />
+        </div>
+      )}
+
+      {/* 底部全量操作 */}
+      {!streaming && (
+        <div className="flex items-center justify-between border-t border-line/60 pt-2 text-[11px] text-ink-3">
+          <div className="flex items-center gap-1">
+            <button
+              className="btn btn-ghost !px-2 !py-1 text-[11px]"
+              onClick={() => onSpeak(raw)}
+              title="朗读完整内容"
+            >
+              <Volume2 size={11} /> 朗读全部
+            </button>
+            <button
+              className="btn btn-ghost !px-2 !py-1 text-[11px]"
+              onClick={() => copyWithFeedback(raw, '完整润色报告')}
+              title="复制包含分析的全部内容"
+            >
+              <Copy size={11} /> 复制全部分析
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
