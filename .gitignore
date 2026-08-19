@@ -7,3 +7,6 @@ release/
 Thumbs.db
 .env
 .env.local
+
+.dsh/
+work-files/
