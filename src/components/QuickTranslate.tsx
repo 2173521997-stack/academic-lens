@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus, BookmarkCheck, SearchX } from 'lucide-react'
 import { quickTranslate, loadRecents, clearRecents, isCn, isCnWord, type QuickMode, type QuickRecent } from '../lib/quickTranslate'
+import { isPhrase } from '../lib/phrases'
 import { useFileStore } from '../stores/fileStore'
 import { useWindowStore } from '../stores/windowStore'
 import { useWordbookStore } from '../stores/wordbookStore'
@@ -144,8 +145,8 @@ export default function QuickTranslate(): React.JSX.Element {
       const t = text.trim()
       window.bridge.debugLog(`onSelectionText received: "${t.slice(0, 40)}" len=${t.length}`)
       if (!t) return
-      const isWord = /^[A-Za-z][A-Za-z'-]{1,45}$/.test(t)
-      // UI 固定在单词页面；prompt 仍按内容分流（词→词典词卡，句→翻译）
+      const isWord = !isCn(t) && (/^[A-Za-z][A-Za-z'-]{1,45}$/.test(t) || isPhrase(t))
+      // UI 固定在单词页面；prompt 仍按内容分流（词/短语→词卡，句子→翻译）
       setMode('word')
       setResult('')
       setError(null)

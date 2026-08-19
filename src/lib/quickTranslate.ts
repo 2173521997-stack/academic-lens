@@ -4,6 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { dictLookup } from './dictLookup'
 import { formatUapisCard } from './wordCard'
 import { cleanWord, suggestSpelling } from './wordClean'
+import { isPhrase } from './phrases'
 
 export type QuickMode = 'word' | 'translate' | 'cn2en' | 'polish'
 
@@ -16,6 +17,16 @@ const SYS_WORD =
   'ex1|英文例句 | 中文翻译\n' +
   'ex2|英文例句 | 中文翻译\n' +
   '如果该词是学术术语，在 def 末尾标注「（学术术语：所属领域）」'
+
+const SYS_PHRASE =
+  '你是英语词典。请用简体中文解释用户给出的英文短语（词组），说明其含义与用法。必须严格按以下格式输出，每行一个字段，不要输出其他内容：\n' +
+  'word|短语本身\n' +
+  'phonetic|大致音标（可省略）\n' +
+  'pos|类型（如 phrase / prep. phrase / conj. / idiom）\n' +
+  'def|简明释义，多条用；分隔\n' +
+  'ex1|英文例句 | 中文翻译\n' +
+  'ex2|英文例句 | 中文翻译\n' +
+  '如果该短语是学术术语，在 def 末尾标注「（学术术语：所属领域）」'
 
 const SYS_TRANSLATE =
   '你是专业学术翻译。将用户提供的英文内容翻译为简体中文，保持学术语气、术语准确、长难句拆分通顺。只输出译文，不要任何解释。'
@@ -108,6 +119,12 @@ export function quickTranslate(
     return { cancel: () => { cancelled = true; llmCall?.cancel() } }
   }
 
+  // 短语：绕过 cleanWord（它只取第一个单词，会破坏短语），直接走 LLM 词卡
+  if (mode === 'word' && isPhrase(text)) {
+    llmCall = runLlm(text, mode, handlers)
+    return { cancel: () => { cancelled = true; llmCall?.cancel() } }
+  }
+
   // mode=word 或 cn2en(word)：先统一清洗（错误拼写 / 大小写 / 音标噪声）
   void (async () => {
     if (cancelled) return
@@ -182,7 +199,7 @@ function runLlm(
   if (mode === 'cn2en') sys = isCnWord(text) ? SYS_CN2EN_WORD : SYS_CN2EN_SENT
   else if (mode === 'translate') sys = SYS_TRANSLATE
   else if (mode === 'polish') sys = SYS_POLISH
-  else sys = SYS_WORD
+  else sys = isPhrase(text) ? SYS_PHRASE : SYS_WORD
 
   let full = ''
   const baseHandlers = {
