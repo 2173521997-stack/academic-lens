@@ -1,4 +1,4 @@
-import { PanelTopClose, ArrowLeft, BookOpen, History, Settings, Layers, Quote, BarChart3, Bot, Feather } from 'lucide-react'
+import { PanelTopClose, ArrowLeft, BookOpen, History, Settings, Layers, Quote, BarChart3, Bot, Feather, Home } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import { useWindowStore } from '../stores/windowStore'
 
@@ -22,13 +22,20 @@ export default function TitleBar(): React.JSX.Element {
           <button
             className="btn btn-ghost !p-1.5"
             onClick={() => go('home')}
-            title="返回翻译"
+            title="返回主页"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <ArrowLeft size={15} />
           </button>
         )}
-        <span className="truncate text-[13px] font-semibold tracking-tight">Academic Lens</span>
+        <button
+          onClick={() => go('home')}
+          className="flex items-center gap-1.5 text-left text-[13px] font-semibold tracking-tight text-ink-1 hover:opacity-80 transition"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          title="点击返回主页"
+        >
+          <span>Academic Lens</span>
+        </button>
         {platform && (
           <span className="chip shrink-0">学术透镜 · {platform === 'darwin' ? 'macOS' : 'Windows'}</span>
         )}
@@ -37,6 +44,14 @@ export default function TitleBar(): React.JSX.Element {
         className="flex shrink-0 items-center gap-1 pr-3"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
+        <button
+          className={`${iconBtn} ${view === 'home' ? '!bg-accent-soft !text-accent' : ''}`}
+          onClick={() => go('home')}
+          title="主页"
+        >
+          <Home size={13} />
+          <span className="hidden sm:inline">主页</span>
+        </button>
         <button
           className={`${iconBtn} ${view === 'polish' ? '!bg-accent-soft !text-accent' : ''}`}
           onClick={() => go(view === 'polish' ? 'home' : 'polish')}
