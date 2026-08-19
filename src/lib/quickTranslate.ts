@@ -5,6 +5,7 @@ import { dictLookup } from './dictLookup'
 import { formatUapisCard } from './wordCard'
 import { cleanWord, suggestSpelling } from './wordClean'
 import { isPhrase } from './phrases'
+import { buildTranslateSys } from './prompt'
 
 export type QuickMode = 'word' | 'translate' | 'explain' | 'polish' | 'cn2en'
 
@@ -28,16 +29,12 @@ const SYS_PHRASE =
   'ex2|英文例句 | 中文翻译\n' +
   '如果该短语是学术术语，在 def 末尾标注「（学术术语：所属领域）」'
 
-const SYS_TRANSLATE =
-  '你是专业学术翻译。将用户提供的英文内容翻译为简体中文，保持学术语气、术语准确、长难句拆分通顺。只输出译文，不要任何解释。'
-
 const SYS_EXPLAIN =
   '你是一名顶级大学学术导师与英语名师。请对用户提供的英文学术长难句、学术概念或数学公式进行深入浅出的专业讲解。\n' +
   '请按以下清晰的 Markdown 结构输出：\n' +
   '## 💡 核心大意 / 一句话导读\n用大白话讲透核心观点或公式的本质目的与直觉。\n' +
   '## 🔬 语法结构 / 逻辑拆解\n拆解主句、从句与修饰关系；若为公式则列出各变量含义（Symbol Table）与计算推导逻辑。\n' +
   '## 📖 学术重点与考点\n提炼核心学术词汇、地道搭配或易混淆点。'
-
 const SYS_CN2EN_WORD =
   '你是中英词典。用户给出中文词语，请给出最常用、最准确的英文翻译。必须严格按以下格式输出，每行一个字段，不要输出其他内容：\n' +
   'word|英文单词\n' +
@@ -204,7 +201,7 @@ function runLlm(
 ): { cancel: () => void } {
   let sys: string
   if (mode === 'cn2en') sys = isCnWord(text) ? SYS_CN2EN_WORD : SYS_CN2EN_SENT
-  else if (mode === 'translate') sys = SYS_TRANSLATE
+  else if (mode === 'translate') sys = buildTranslateSys() // 带全局领域预设 + 术语一致性注入
   else if (mode === 'explain') sys = SYS_EXPLAIN
   else if (mode === 'polish') sys = SYS_POLISH
   else sys = isPhrase(text) ? SYS_PHRASE : SYS_WORD

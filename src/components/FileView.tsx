@@ -1,8 +1,9 @@
 import { memo, useMemo, useState, Fragment } from 'react'
-import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy, Highlighter, Image, BookOpen, Award, EyeOff, Eye, Calculator } from 'lucide-react'
+import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy, Highlighter, Image, BookOpen, Award, EyeOff, Eye, Calculator, Layers } from 'lucide-react'
 import { useFileStore, type DocMode } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useAppStore } from '../stores/appStore'
+import { useFlashcardStore } from '../stores/flashcardStore'
 import { useAgentStore } from '../stores/agentStore'
 import { useSettingsStore, DOMAIN_LABELS, type DomainPreset } from '../stores/settingsStore'
 import { toast } from '../stores/noticeStore'
@@ -230,6 +231,12 @@ function CnSplitView(): React.JSX.Element {
 
   const fullDocText = useMemo(() => segments.map((s) => s.text).join('\n\n'), [segments])
 
+  const goFlashcard = (): void => {
+    // 直接进入「当前文档」来源，抽本篇未收藏生词背
+    useFlashcardStore.getState().setSource('doc')
+    useAppStore.getState().go('flashcard')
+  }
+
   let lastPage: number | undefined
 
   const lhClass = lineHeight === '1.5' ? 'leading-[1.5]' : lineHeight === '2.0' ? 'leading-[2.0]' : 'leading-[1.75]'
@@ -310,9 +317,14 @@ function CnSplitView(): React.JSX.Element {
               </span>
             )}
             {diff && diff.totalUnknown > 0 && (
-              <button className="btn !px-2 !py-1 text-[11px]" onClick={batchAdd} title="把本篇全部未收藏生词（含语境句）加入生词本">
-                <BookmarkPlus size={11} /> 入本
-              </button>
+              <>
+                <button className="btn !px-2 !py-1 text-[11px]" onClick={batchAdd} title="把本篇全部未收藏生词（含语境句）加入生词本">
+                  <BookmarkPlus size={11} /> 入本
+                </button>
+                <button className="btn !px-2 !py-1 text-[11px]" onClick={goFlashcard} title="去闪卡背本篇生词">
+                  <Layers size={11} /> 去闪卡背
+                </button>
+              </>
             )}
           </div>
         </div>

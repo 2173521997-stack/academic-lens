@@ -104,6 +104,8 @@ interface FlashcardState {
   nextExercise: () => void
   clearExercises: () => void
   reset: () => void
+  /** 设置抽卡来源（供文档页「去闪卡背」等外部入口指定） */
+  setSource: (s: 'wordbook' | 'due' | 'custom' | 'doc') => void
 }
 
 export const useFlashcardStore = create<FlashcardState>((set, get) => ({
@@ -311,5 +313,7 @@ export const useFlashcardStore = create<FlashcardState>((set, get) => ({
     set({
       deck: [], index: 0, flipped: false, known: 0, unknown: 0, error: null, source: 'wordbook',
       exercises: [], exDone: false, exScore: 0, exIndex: 0, exAnswered: false, exGrade: null
-    })
+    }),
+
+  setSource: (source) => set({ source })
 }))
