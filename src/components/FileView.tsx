@@ -215,6 +215,7 @@ export default function FileView(): React.JSX.Element {
               segments={segments}
               viewLayout={viewLayout}
               onTranslateOne={translateOne}
+              onSwitchToText={() => setViewLayout('text-split')}
             />
           ) : (
             <div className="h-full overflow-y-auto p-5">

@@ -47,7 +47,7 @@ async function openDroppedFile(filePath: string): Promise<void> {
   try {
     const data = await window.bridge.readFile(filePath)
     const segs = await parseAnyFile(name, data)
-    useFileStore.getState().setDoc({ name, size: data.byteLength }, segs)
+    useFileStore.getState().setDoc({ name, size: data.byteLength, rawBuffer: new Uint8Array(data), path: filePath }, segs)
     useWindowStore.getState().setMode('full')
     useAppStore.getState().go('home')
   } catch {

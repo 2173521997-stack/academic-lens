@@ -94,7 +94,7 @@ export default function HomeView(): React.JSX.Element {
       try {
         const data = await window.bridge.readFile(p)
         const segs = await parseAnyFile(name, data)
-        setDoc({ name, size: data.byteLength, rawBuffer: data }, segs)
+        setDoc({ name, size: data.byteLength, rawBuffer: new Uint8Array(data), path: p }, segs)
         return
       } catch {
         /* 跳过读取失败的文件 */
@@ -360,7 +360,7 @@ function DropZone(props: {
           setMsg('未能从文件中提取到文本（扫描版 PDF 请用「图片翻译」）')
           return
         }
-        setDoc({ name, size: data.byteLength, rawBuffer: data }, segments)
+        setDoc({ name, size: data.byteLength, rawBuffer: new Uint8Array(data) }, segments)
       } catch (err) {
         setMsg(err instanceof Error ? err.message : '解析失败')
       } finally {

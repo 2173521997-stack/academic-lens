@@ -199,7 +199,8 @@ export async function parsePdf(data: Uint8Array, onProgress?: (done: number, tot
   const pdfjs = await import('pdfjs-dist')
   const workerUrl = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
-  const doc = await pdfjs.getDocument({ data }).promise
+  // 使用克隆的独立 buffer，防止 worker 传输后将主线程 ArrayBuffer 脱离 (detach)
+  const doc = await pdfjs.getDocument({ data: data.slice(0) }).promise
   const segs: Segment[] = []
   try {
     const CONCURRENCY = 3

@@ -14,13 +14,15 @@ export async function getPdfjs(): Promise<typeof import('pdfjs-dist')> {
 const docCache = new Map<string, PDFDocumentProxy>()
 
 export async function loadPdfDocument(data: Uint8Array, docKey = 'current_doc'): Promise<PDFDocumentProxy> {
-  if (docCache.has(docKey)) {
-    return docCache.get(docKey)!
+  const key = `${docKey}_${data.byteLength}`
+  if (docCache.has(key)) {
+    return docCache.get(key)!
   }
   const pdfjs = await getPdfjs()
-  const loadingTask = pdfjs.getDocument({ data: data.slice(0) })
+  const copy = new Uint8Array(data.slice(0))
+  const loadingTask = pdfjs.getDocument({ data: copy })
   const doc = await loadingTask.promise
-  docCache.set(docKey, doc)
+  docCache.set(key, doc)
   return doc
 }
 

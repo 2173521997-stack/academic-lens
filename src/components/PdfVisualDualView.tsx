@@ -18,10 +18,11 @@ interface PdfVisualDualViewProps {
   segments: Segment[]
   viewLayout: ViewLayout
   onTranslateOne: (segId: string) => void
+  onSwitchToText?: () => void
 }
 
 export default function PdfVisualDualView(props: PdfVisualDualViewProps): React.JSX.Element {
-  const { doc, segments, viewLayout, onTranslateOne } = props
+  const { doc, segments, viewLayout, onTranslateOne, onSwitchToText } = props
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -36,32 +37,37 @@ export default function PdfVisualDualView(props: PdfVisualDualViewProps): React.
   // 1. 加载 PDF 文档
   useEffect(() => {
     let alive = true
-    if (!doc.rawBuffer) {
-      setError('未找到 PDF 原始文件流')
-      setLoading(false)
-      return
-    }
 
-    setLoading(true)
-    setError(null)
-    loadPdfDocument(doc.rawBuffer, doc.name)
-      .then((pdf) => {
+    const init = async (): Promise<void> => {
+      setLoading(true)
+      setError(null)
+      try {
+        let buf = doc.rawBuffer
+        if (!buf && doc.path) {
+          buf = await window.bridge.readFile(doc.path)
+        }
+        if (!buf || buf.byteLength === 0) {
+          throw new Error('未获取到 PDF 文件数据')
+        }
+        const pdf = await loadPdfDocument(buf, doc.name)
         if (alive) {
           setPdfDoc(pdf)
           setLoading(false)
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if (alive) {
           setError(err instanceof Error ? err.message : 'PDF 加载失败')
           setLoading(false)
         }
-      })
+      }
+    }
+
+    void init()
 
     return () => {
       alive = false
     }
-  }, [doc.name, doc.rawBuffer])
+  }, [doc.name, doc.rawBuffer, doc.path])
 
   // 2. 双向同步滚动 (左右视口联动)
   const handleScroll = useCallback((source: 'left' | 'right') => {
@@ -109,10 +115,20 @@ export default function PdfVisualDualView(props: PdfVisualDualViewProps): React.
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
+      <div className="flex h-full flex-col items-center justify-center p-8">
         <div className="card max-w-md p-6 text-center text-danger border-danger/30">
           <p className="font-semibold text-[14px]">PDF 原版视图加载异常</p>
           <p className="mt-1 text-[12px] text-ink-3">{error}</p>
+          <div className="mt-4 flex items-center justify-center gap-2">
+            {onSwitchToText && (
+              <button
+                className="btn btn-primary !px-3 !py-1 text-[12px]"
+                onClick={onSwitchToText}
+              >
+                切换到结构化文本对照视图
+              </button>
+            )}
+          </div>
         </div>
       </div>
     )
