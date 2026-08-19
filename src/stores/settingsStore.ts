@@ -18,7 +18,7 @@ export const PROVIDERS: Record<string, ProviderPreset> = {
   custom: { label: '自定义（OpenAI 兼容）', baseUrl: '', model: '' }
 }
 
-export type ThemeMode = 'system' | 'light' | 'dark'
+export type ThemeMode = 'system' | 'light' | 'dark' | 'paper' | 'nord' | 'sage'
 
 /** 查词双轨：uapis 词典优先（自动回退 LLM） / 仅 LLM */
 export type LookupSource = 'dict' | 'llm'

@@ -1,4 +1,4 @@
-import { PanelTopClose, ArrowLeft, BookOpen, History, Settings, Layers, Quote, BarChart3, Bot } from 'lucide-react'
+import { PanelTopClose, ArrowLeft, BookOpen, History, Settings, Layers, Quote, BarChart3, Bot, Feather } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import { useWindowStore } from '../stores/windowStore'
 
@@ -37,6 +37,14 @@ export default function TitleBar(): React.JSX.Element {
         className="flex shrink-0 items-center gap-1 pr-3"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
+        <button
+          className={`${iconBtn} ${view === 'polish' ? '!bg-accent-soft !text-accent' : ''}`}
+          onClick={() => go(view === 'polish' ? 'home' : 'polish')}
+          title="学术润色（IEEE/ACM/Nature 规范）"
+        >
+          <Feather size={13} />
+          <span className="hidden sm:inline">润色</span>
+        </button>
         <button
           className={`${iconBtn} ${view === 'agent' ? '!bg-accent-soft !text-accent' : ''}`}
           onClick={() => go(view === 'agent' ? 'home' : 'agent')}

@@ -10,7 +10,7 @@ interface WindowState {
 }
 
 export const useWindowStore = create<WindowState>((set, get) => ({
-  mode: 'mini',
+  mode: 'full',
   alwaysOnTop: false,
   inited: false,
 

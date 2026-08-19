@@ -10,6 +10,7 @@ import { parseAnyFile } from './lib/parse'
 import { isSupported } from './lib/types'
 import TitleBar from './components/TitleBar'
 import HomeView from './components/HomeView'
+import PolishView from './components/PolishView'
 import AgentView from './components/AgentView'
 import WordbookView from './components/WordbookView'
 import FlashcardView from './components/FlashcardView'
@@ -23,10 +24,20 @@ import NoticeView from './components/NoticeView'
 
 function applyTheme(): void {
   const { theme } = useSettingsStore.getState().settings
-  const dark =
-    theme === 'dark' ||
-    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', dark)
+  const root = document.documentElement
+  root.classList.remove('dark', 'theme-paper', 'theme-nord', 'theme-sage')
+  if (theme === 'paper') {
+    root.classList.add('theme-paper')
+  } else if (theme === 'nord') {
+    root.classList.add('dark', 'theme-nord')
+  } else if (theme === 'sage') {
+    root.classList.add('theme-sage')
+  } else {
+    const dark =
+      theme === 'dark' ||
+      (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    root.classList.toggle('dark', dark)
+  }
 }
 
 /** macOS Dock 拖入 / Finder 打开：读取并解析文件，进入翻译 */
@@ -100,6 +111,7 @@ export default function App(): React.JSX.Element {
       <div className="relative flex min-h-0 flex-1">
         <main className="min-w-0 flex-1 overflow-hidden">
           {view === 'home' && <HomeView />}
+          {view === 'polish' && <PolishView />}
           {view === 'agent' && <AgentView />}
           {view === 'wordbook' && <WordbookView />}
           {view === 'flashcard' && <FlashcardView />}

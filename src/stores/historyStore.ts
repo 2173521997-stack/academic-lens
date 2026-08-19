@@ -82,26 +82,41 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const kw = keyword.trim().toLowerCase()
     if (!kw) return '请在历史检索中提供关键词。'
     const parts: string[] = []
-    // 摘要：从历史 entries 中已有 payload 的 summary 记录里匹配
+    // 摘要与记录：从历史 entries 中匹配标题、详情与 payload 全文
     for (const e of get().entries) {
-      if (e.type === 'summary' && e.payload && e.title.toLowerCase().includes(kw)) {
-        parts.push(`【摘要·${e.title}】${e.payload.slice(0, 500)}`)
+      const matchTitle = e.title.toLowerCase().includes(kw)
+      const matchDetail = e.detail ? e.detail.toLowerCase().includes(kw) : false
+      const matchPayload = e.payload ? e.payload.toLowerCase().includes(kw) : false
+      if (matchTitle || matchDetail || matchPayload) {
+        const snippet = e.payload ? e.payload.slice(0, 400) : e.detail ?? ''
+        parts.push(`【${e.type === 'summary' ? '摘要' : '历史'}·${e.title}】\n${snippet}`)
       }
     }
-    // 文档译文：匹配文档名，返回不含全文的指引 + 取出译文前若干字
+    // 文档译文快照：全文匹配文档名、原文或译文
     const docResults = await window.bridge.storeGet<DocResult[]>('docResults')
     if (Array.isArray(docResults)) {
       for (const d of docResults) {
-        if (d.name.toLowerCase().includes(kw)) {
+        const matchName = d.name.toLowerCase().includes(kw)
+        const matchSrc = d.source ? d.source.toLowerCase().includes(kw) : false
+        const matchTrans = d.translation ? d.translation.toLowerCase().includes(kw) : false
+        if (matchName || matchSrc || matchTrans) {
+          // 提取匹配的上下文片段
+          let snippet = ''
+          const srcIdx = d.source.toLowerCase().indexOf(kw)
+          if (srcIdx >= 0) {
+            snippet = `...${d.source.slice(Math.max(0, srcIdx - 50), srcIdx + 150)}...`
+          } else {
+            snippet = d.source.slice(0, 180)
+          }
           parts.push(
-            `【译文·${d.name}】共 ${d.segCount} 段。\n原文开头：${d.source.slice(0, 200)}\n译文开头：${d.translation.slice(0, 300)}`
+            `【文献·${d.name}】共 ${d.segCount} 段。\n匹配片段：${snippet}\n译文概况：${d.translation.slice(0, 200)}`
           )
         }
       }
     }
     return parts.length
-      ? `在历史中找到 ${parts.length} 条与「${keyword}」相关的记录：\n\n` + parts.join('\n\n')
-      : `历史中没有找到与「${keyword}」相关的摘要或文档译文。`
+      ? `在历史文献库中找到 ${parts.length} 条与「${keyword}」相关的记录：\n\n` + parts.join('\n\n')
+      : `历史文献库中没有找到与「${keyword}」相关的文档、摘要或译文。`
   },
 
   clear: () => {

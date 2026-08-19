@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus, BookmarkCheck, SearchX } from 'lucide-react'
+import { Send, Square, Volume2, Copy, Eraser, History, FolderOpen, Maximize2, Loader2, BookmarkPlus, BookmarkCheck, SearchX, BookOpen, Languages, Sparkles, Feather, Keyboard, Calculator, Lightbulb } from 'lucide-react'
 import { quickTranslate, loadRecents, clearRecents, isCn, isCnWord, type QuickMode, type QuickRecent } from '../lib/quickTranslate'
 import { isPhrase } from '../lib/phrases'
 import { useFileStore } from '../stores/fileStore'
@@ -10,6 +10,34 @@ import { parseAnyFile } from '../lib/parse'
 import { suggest } from '../lib/suggest'
 import { parseWordCard, type WordEntry } from '../lib/wordCard'
 import Segmented from './Segmented'
+
+const PLACEHOLDERS: Record<QuickMode, string> = {
+  word: '输入英文单词/学术术语或中文词语... [Enter 查词卡 · 真实词典/AI 双轨]',
+  translate: '输入英文句子/段落... [Enter 即翻 · 自动修复 PDF 跨行断词与连字符]',
+  explain: '输入长难句（拆解语法修饰）或公式/LaTeX（提取变量字典与大白话直觉）...',
+  polish: '输入待润色英文或中文草稿... [Enter 输出学术规范版与变体]',
+  cn2en: '输入中文词语自动反查英文词卡，句子直接直译...'
+}
+
+const MODE_SAMPLES: Record<QuickMode, { label: string; text: string }[]> = {
+  word: [
+    { label: '核心学术词', text: 'transformer' },
+    { label: '学术短语', text: 'attention mechanism' },
+    { label: '中文反查', text: '过拟合' }
+  ],
+  translate: [
+    { label: '结论句', text: 'Our framework achieves state-of-the-art accuracy on public benchmarks.' },
+    { label: '动机句', text: 'Due to data scarcity, semi-supervised learning plays a crucial role.' }
+  ],
+  explain: [
+    { label: '长难句剖析', text: 'The model, whose parameters were trained on diverse corpora, shows high robustness.' },
+    { label: '公式拆解', text: 'L_{reg} = \\lambda \\sum_{i=1}^n ||\\theta_i||^2' }
+  ],
+  polish: [
+    { label: '摘要润色', text: 'Nowadays deep learning is very good and used in many areas, but has data problems.' }
+  ],
+  cn2en: []
+}
 
 export default function QuickTranslate(): React.JSX.Element {
   const [input, setInput] = useState('')
@@ -218,6 +246,7 @@ export default function QuickTranslate(): React.JSX.Element {
             items={[
               { value: 'word', label: '单词' },
               { value: 'translate', label: '翻译' },
+              { value: 'explain', label: '讲解' },
               { value: 'polish', label: '润色' }
             ]}
             value={mode}
@@ -237,8 +266,8 @@ export default function QuickTranslate(): React.JSX.Element {
       <div className="px-3 pt-2">
         <textarea
           ref={inputRef}
-          className="input min-h-[64px] resize-none !rounded-2xl !text-[14px]"
-          placeholder="输入英文查词 / 中文自动译英…（Ctrl/Cmd+Shift+T 唤起小窗）"
+          className="input min-h-[64px] resize-none !rounded-2xl !text-[13px] leading-relaxed"
+          placeholder={PLACEHOLDERS[cnInput ? 'cn2en' : mode]}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -344,7 +373,7 @@ export default function QuickTranslate(): React.JSX.Element {
         {streaming && (
           <div className="mb-1 flex items-center gap-2 text-[11px] text-ink-3">
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-            正在{cnInput ? '中译英' : mode === 'word' ? '查词' : mode === 'polish' ? '润色' : '翻译'}…
+            正在{cnInput ? '中译英' : mode === 'word' ? '查词' : mode === 'explain' ? '剖析讲解' : mode === 'polish' ? '润色' : '翻译'}…
           </div>
         )}
 
@@ -378,8 +407,8 @@ export default function QuickTranslate(): React.JSX.Element {
         ) : result ? (
           <div className="card animate-float-in p-3">
             <div className={`select-text text-[13px] leading-relaxed ${streaming ? 'stream-caret' : ''}`}>
-            {result}
-          </div>
+              {result}
+            </div>
             {!streaming && (
               <div className="mt-2 flex items-center gap-1 border-t border-line pt-2">
                 <button className="btn btn-ghost !px-2 !py-1 text-[11px]" onClick={() => window.bridge.speak(result)} title="朗读">
@@ -400,12 +429,76 @@ export default function QuickTranslate(): React.JSX.Element {
           </div>
         ) : (
           !streaming && (
-            <div className="py-8 text-center text-[11px] leading-relaxed text-ink-3">
-              上课 / 读论文时的随手翻译
-              <br />
-              复制单词后按 <kbd className="rounded bg-surface px-1.5 py-0.5 font-semibold">Ctrl/Cmd+Shift+T</kbd> 唤起小窗
-              <br />
-              粘贴即译 · 输入中文词语自动译成英文词卡，中文句子直接直译
+            <div className="space-y-3 py-2 animate-in fade-in duration-150">
+              {/* 功能使用说明卡片 */}
+              <div className="rounded-xl border border-line bg-card/60 p-3.5 text-left">
+                <div className="flex items-center gap-2 font-medium text-ink-1">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                    {mode === 'word' ? <BookOpen size={13} /> : mode === 'translate' ? <Languages size={13} /> : mode === 'explain' ? <Calculator size={13} /> : <Feather size={13} />}
+                  </div>
+                  <span className="text-[12px] font-semibold">
+                    {mode === 'word' ? '📖 单词模式使用方法' : mode === 'translate' ? '🌐 翻译模式使用方法' : mode === 'explain' ? '🔬 讲解模式使用方法' : '✍️ 润色模式使用方法'}
+                  </span>
+                </div>
+
+                <p className="mt-2 text-[11px] leading-relaxed text-ink-2">
+                  {mode === 'word' && '输入英文单词或短语，即刻生成标准音标、词性、权威简明释义与学术例句，支持一键收藏入生词本。输入中文词语自动反查英文词卡。'}
+                  {mode === 'translate' && '输入学术长句或整段英文，输出地道学术直译；自动修复 PDF 复制产生的跨行断句与连字符断词。'}
+                  {mode === 'explain' && '输入长难句分析主干与从句修饰关系；输入数学公式或 LaTeX，自动提取变量字典（Symbol Table）并用大白话讲透算法作用。'}
+                  {mode === 'polish' && '输入英文草稿或中文初稿，自动输出符合 IEEE/ACM/Nature 规范的学术定稿，并提供用词建议与变体。'}
+                </p>
+
+                {/* 快捷键速查 */}
+                <div className="mt-3 border-t border-line/60 pt-2.5">
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-ink-3">
+                    <Keyboard size={11} />
+                    <span>快捷操作指引</span>
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[10px] text-ink-2">
+                    <div className="flex items-center justify-between rounded-lg bg-surface/80 px-2 py-1">
+                      <span>划词秒翻</span>
+                      <kbd className="font-semibold text-accent">Alt+X / Ctrl+Shift+X</kbd>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-surface/80 px-2 py-1">
+                      <span>唤起小窗</span>
+                      <kbd className="font-semibold text-accent">Alt+T / Ctrl+Shift+T</kbd>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-surface/80 px-2 py-1">
+                      <span>大/小窗切换</span>
+                      <kbd className="font-semibold text-accent">F11 / Ctrl+Shift+M</kbd>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-surface/80 px-2 py-1">
+                      <span>提交查询</span>
+                      <kbd className="font-semibold text-accent">Enter</kbd>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 典型范例一键试用 */}
+                {MODE_SAMPLES[mode]?.length > 0 && (
+                  <div className="mt-3 border-t border-line/60 pt-2.5">
+                    <div className="flex items-center gap-1 text-[10px] font-medium text-ink-3">
+                      <Lightbulb size={11} />
+                      <span>点击一键填入试用范例：</span>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {MODE_SAMPLES[mode].map((s, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setInput(s.text)
+                            run(s.text)
+                          }}
+                          className="btn btn-ghost !border-line !bg-surface !px-2 !py-1 text-[10px] text-ink-2 hover:!border-accent/40 hover:!text-accent"
+                        >
+                          <Sparkles size={10} className="text-accent" />
+                          <span>{s.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )
         )}

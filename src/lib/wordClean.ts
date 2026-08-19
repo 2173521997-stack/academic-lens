@@ -26,9 +26,23 @@ export interface CleanedWord {
   suggestion?: string
 }
 
+/** 自动修复 PDF 复制导致的跨行连字符与非自然换行 */
+export function fixHyphenationAndBreaks(raw: string): string {
+  if (!raw) return ''
+  return raw
+    // 1. 合并跨行连字符单词：如 "trans-\r\nformation" -> "transformation"
+    .replace(/([a-zA-Z]+)-\s*[\r\n]+\s*([a-zA-Z]+)/g, '$1$2')
+    // 2. 修复行内非自然断行（双换行保留为段落，单换行转为空格或直接拼接中文）
+    .replace(/([^\r\n])[\r\n]([^\r\n])/g, (_match, p1, p2) => {
+      return /[\u4e00-\u9fa5]/.test(p1) && /[\u4e00-\u9fa5]/.test(p2) ? `${p1}${p2}` : `${p1} ${p2}`
+    })
+    .trim()
+}
+
 /** 剥离音标括号 /…/、[...]、引号，返回去掉这些噪声后的字符串 */
 function stripPhoneticAndNoise(raw: string): string {
-  return raw
+  const fixed = fixHyphenationAndBreaks(raw)
+  return fixed
     .replace(/\/(?:[^/]*)\//g, ' ') // /.../ 音标
     .replace(/\[[^\]]*\]/g, ' ') // [...] 音标
     .replace(/[*"“”‘’,.:;?!、，。；：（）()]/g, ' ')

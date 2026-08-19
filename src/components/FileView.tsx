@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, Fragment } from 'react'
-import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy, Highlighter, Image, Layers, BookOpen } from 'lucide-react'
+import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy, Highlighter, Image, BookOpen, Award, EyeOff, Eye, Calculator } from 'lucide-react'
 import { useFileStore, type DocMode } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useAppStore } from '../stores/appStore'
@@ -13,6 +13,8 @@ import { parseInlineMarkdown, splitSentences } from '../lib/inline'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../lib/sanitize'
 import type { Segment, Block, Inline } from '../lib/types'
+import MathModal from './MathModal'
+import QuizModal from './QuizModal'
 
 export default function FileView(): React.JSX.Element {
   const doc = useFileStore((s) => s.doc)
@@ -181,6 +183,7 @@ export default function FileView(): React.JSX.Element {
 
 /** 中文译文视图：左右双栏对照（左英文原文 / 右中文译文），段落逐行对齐，PDF 按页分组，可高亮生词 */
 function CnSplitView(): React.JSX.Element {
+  const doc = useFileStore((s) => s.doc)
   const segments = useFileStore((s) => s.segments)
   const translateOne = useFileStore((s) => s.translateOne)
   const addWord = useWordbookStore((s) => s.add)
@@ -189,6 +192,11 @@ function CnSplitView(): React.JSX.Element {
 
   const [diffOn, setDiffOn] = useState(false)
   const [sentenceOn, setSentenceOn] = useState(false)
+  const [blinderMode, setBlinderMode] = useState(false)
+  const [showQuiz, setShowQuiz] = useState(false)
+  const [mathFormula, setMathFormula] = useState<{ latex: string; context?: string } | null>(null)
+  const [lineHeight, setLineHeight] = useState<'1.5' | '1.75' | '2.0'>('1.75')
+
   const readerFont = useSettingsStore((s) => s.settings.readerFont)
   const toggleReaderFont = (): void => {
     useSettingsStore.getState().update({ readerFont: readerFont === 'serif' ? 'sans' : 'serif' })
@@ -220,63 +228,102 @@ function CnSplitView(): React.JSX.Element {
     toast('success', n > 0 ? `已将 ${n} 个生词加入生词本` : '没有新的生词可加入（都已收藏）', '本篇生词')
   }
 
-  const goFlashcard = (): void => {
-    useAppStore.getState().go('flashcard')
-  }
+  const fullDocText = useMemo(() => segments.map((s) => s.text).join('\n\n'), [segments])
 
   let lastPage: number | undefined
 
+  const lhClass = lineHeight === '1.5' ? 'leading-[1.5]' : lineHeight === '2.0' ? 'leading-[2.0]' : 'leading-[1.75]'
+
   return (
-    <div className={`mx-auto max-w-6xl ${readerFont === 'serif' ? 'reader-serif' : ''}`}>
-      {/* 生词高亮开关 + 命中率条 */}
+    <div className={`mx-auto max-w-6xl ${readerFont === 'serif' ? 'font-serif-reading' : ''} ${blinderMode ? 'blinder-active' : ''}`}>
+      {/* 生词高亮开关 + 遮译 + 考考我 + 行距工具条 */}
       <div className="sticky top-0 z-10 border-b border-line bg-panel/95 backdrop-blur">
-        <div className="flex items-center gap-3 px-3 py-1.5">
-          <button
-            className={`btn !px-2.5 !py-1 text-[11px] ${diffOn ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
-            onClick={() => setDiffOn((v) => !v)}
-            title="对照生词本，高亮原文中未收藏的单词"
-          >
-            <Highlighter size={11} /> {diffOn ? '隐藏生词' : '标出生词'}
-          </button>
-          <button
-            className={`btn !px-2.5 !py-1 text-[11px] ${sentenceOn ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
-            onClick={() => setSentenceOn((v) => !v)}
-            title="段落内按句子拆分为双语对照行"
-          >
-            <Languages size={11} /> {sentenceOn ? '逐段' : '逐句'}
-          </button>
-          <button
-            className={`btn !px-2.5 !py-1 text-[11px] ${readerFont === 'serif' ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
-            onClick={toggleReaderFont}
-            title="切换衬线 / 无衬线字体"
-          >
-            {readerFont === 'serif' ? <BookOpen size={11} /> : <BookOpen size={11} />} {readerFont === 'serif' ? '衬线' : '无衬线'}
-          </button>
-          {diff && (
-            <>
-              <span className="flex items-center gap-1 text-[11px] text-ink-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className={`btn !px-2.5 !py-1 text-[11px] ${diffOn ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
+              onClick={() => setDiffOn((v) => !v)}
+              title="对照生词本，高亮原文中未收藏的单词"
+            >
+              <Highlighter size={11} /> {diffOn ? '隐藏生词' : '标出生词'}
+            </button>
+            <button
+              className={`btn !px-2.5 !py-1 text-[11px] ${sentenceOn ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
+              onClick={() => setSentenceOn((v) => !v)}
+              title="段落内按句子拆分为双语对照行"
+            >
+              <Languages size={11} /> {sentenceOn ? '逐段' : '逐句'}
+            </button>
+            <button
+              className={`btn !px-2.5 !py-1 text-[11px] ${blinderMode ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
+              onClick={() => setBlinderMode((v) => !v)}
+              title="开启遮译自测模式：右侧译文默认磨砂遮罩，鼠标悬停单段即时揭开"
+            >
+              {blinderMode ? <Eye size={11} /> : <EyeOff size={11} />} {blinderMode ? '退出遮译' : '遮译自测'}
+            </button>
+            <button
+              className="btn !border-accent/30 !bg-accent/10 !px-2.5 !py-1 text-[11px] font-semibold text-accent hover:!bg-accent/20"
+              onClick={() => setShowQuiz(true)}
+              title="根据当前文档内容生成 3 道随堂测验题"
+            >
+              <Award size={11} /> 📝 考考我
+            </button>
+            <button
+              className={`btn !px-2.5 !py-1 text-[11px] ${readerFont === 'serif' ? '!border-accent !bg-accent/10 !text-accent' : ''}`}
+              onClick={toggleReaderFont}
+              title="切换经典衬线 (Serif) / 现代无衬线 (Sans) 字体"
+            >
+              <BookOpen size={11} /> {readerFont === 'serif' ? '衬线体' : '无衬线'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* 行距选择器 */}
+            <div className="flex items-center rounded-lg border border-line bg-surface/50 p-0.5 text-[10px]">
+              <button
+                className={`rounded px-1.5 py-0.5 transition ${lineHeight === '1.5' ? 'bg-card font-bold text-accent shadow-xs' : 'text-ink-3'}`}
+                onClick={() => setLineHeight('1.5')}
+                title="1.5 倍行距"
+              >
+                1.5x
+              </button>
+              <button
+                className={`rounded px-1.5 py-0.5 transition ${lineHeight === '1.75' ? 'bg-card font-bold text-accent shadow-xs' : 'text-ink-3'}`}
+                onClick={() => setLineHeight('1.75')}
+                title="1.75 倍行距"
+              >
+                1.75x
+              </button>
+              <button
+                className={`rounded px-1.5 py-0.5 transition ${lineHeight === '2.0' ? 'bg-card font-bold text-accent shadow-xs' : 'text-ink-3'}`}
+                onClick={() => setLineHeight('2.0')}
+                title="2.0 倍行距"
+              >
+                2.0x
+              </button>
+            </div>
+
+            {diff && (
+              <span className="hidden items-center gap-1 text-[11px] text-ink-2 sm:flex">
                 <span className="chip !text-[10px]">生词 {diff.totalUnknown}</span>
-                <span className="text-ink-3">已认识命中率 {diff.hitRate}% · 对标生词本 {wordbookCount} 词</span>
+                <span className="text-ink-3">命中率 {diff.hitRate}%</span>
               </span>
-              {diff.totalUnknown > 0 && (
-                <span className="flex items-center gap-1">
-                  <button className="btn !px-2.5 !py-1 text-[11px]" onClick={batchAdd} title="把本篇全部未收藏生词（含语境句）加入生词本">
-                    <BookmarkPlus size={11} /> 本篇生词入本
-                  </button>
-                  <button className="btn !px-2.5 !py-1 text-[11px]" onClick={goFlashcard} title="去闪卡复习">
-                    <Layers size={11} /> 去闪卡背
-                  </button>
-                </span>
-              )}
-            </>
-          )}
+            )}
+            {diff && diff.totalUnknown > 0 && (
+              <button className="btn !px-2 !py-1 text-[11px]" onClick={batchAdd} title="把本篇全部未收藏生词（含语境句）加入生词本">
+                <BookmarkPlus size={11} /> 入本
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* 吸顶列头 */}
       <div className="sticky top-[34px] z-10 grid grid-cols-[fit-content(50%)_minmax(0,1fr)] gap-x-6 border-b border-line bg-panel/95 px-3 py-1.5 backdrop-blur">
         <span className="text-[11px] font-semibold tracking-wide text-ink-3">英文原文</span>
-        <span className="text-[11px] font-semibold tracking-wide text-ink-3">中文译文</span>
+        <span className="text-[11px] font-semibold tracking-wide text-ink-3">
+          中文译文 {blinderMode && <span className="text-[10px] font-normal text-accent">（遮译自测已开启，悬停揭开）</span>}
+        </span>
       </div>
       {segments.map((seg, i) => {
         const pageBreak = seg.page !== undefined && seg.page !== lastPage
@@ -298,10 +345,30 @@ function CnSplitView(): React.JSX.Element {
               diff={diff?.segments[i] ?? null}
               diffOn={diffOn}
               sentenceOn={sentenceOn}
+              lhClass={lhClass}
+              onExplainMath={(latex, context) => setMathFormula({ latex, context })}
             />
           </Fragment>
         )
       })}
+
+      {/* 公式拆解弹窗 */}
+      {mathFormula && (
+        <MathModal
+          latex={mathFormula.latex}
+          context={mathFormula.context}
+          onClose={() => setMathFormula(null)}
+        />
+      )}
+
+      {/* 考考我自测弹窗 */}
+      {showQuiz && doc && (
+        <QuizModal
+          docName={doc.name}
+          docText={fullDocText}
+          onClose={() => setShowQuiz(false)}
+        />
+      )}
     </div>
   )
 }
@@ -315,7 +382,9 @@ const SplitRow = memo(function SplitRow({
   addUserQuick,
   diff,
   diffOn,
-  sentenceOn
+  sentenceOn,
+  lhClass,
+  onExplainMath
 }: {
   seg: Segment
   index: number
@@ -325,36 +394,42 @@ const SplitRow = memo(function SplitRow({
   diff: SegmentUnknown | null
   diffOn: boolean
   sentenceOn: boolean
+  lhClass: string
+  onExplainMath: (latex: string, context?: string) => void
 }): React.JSX.Element {
   const block = seg.block
   const kind = block.kind
 
   const showTranslateAction = !seg.translation && !seg.translating && !seg.error
+  const isMathLike = kind === 'math' || /[\\$\^_=]/.test(seg.text) && /[\{\}\\]/.test(seg.text)
 
   return (
     <div
       data-page={seg.page}
-      className="group border-b border-line/60 px-3 py-2.5 transition hover:bg-surface/70"
+      className="bilingual-card group border-b border-line/60 px-3 py-2.5 transition hover:bg-surface/70"
       data-kind={kind}
     >
       {kind === 'paragraph' && sentenceOn ? (
-        <SentenceRows seg={seg} diff={diff} diffOn={diffOn} />
+        <SentenceRows seg={seg} diff={diff} diffOn={diffOn} lhClass={lhClass} />
       ) : (
-        <div className="grid grid-cols-[fit-content(50%)_minmax(0,1fr)] gap-x-6">
+        <div className="grid grid-cols-[fit-content(50%)_minmax(0,1fr)] gap-x-6 items-stretch">
           {/* 左栏：原文（按块类型渲染） */}
           <BlockSource
             block={block}
             diff={diff}
             diffOn={diffOn}
+            lhClass={lhClass}
             sortClass=""
           />
-          {/* 右栏：译文（同样按块对齐渲染） */}
-          <TranslationBody seg={seg} block={block} />
+          {/* 右栏：译文（同样按块对齐渲染，支持遮译磨砂） */}
+          <div className="blinder-cover min-w-0">
+            <TranslationBody seg={seg} block={block} lhClass={lhClass} />
+          </div>
         </div>
       )}
 
       {/* 操作区：行底文档流占位，hover 淡入，绝不与译文重叠 */}
-      <div className="mt-1 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+      <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-0 transition group-hover:opacity-100">
         {seg.error && (
           <button
             className="btn btn-ghost !px-2 !py-0.5 text-[11px]"
@@ -372,6 +447,15 @@ const SplitRow = memo(function SplitRow({
         {showTranslateAction && seg.type === 'table' && (
           <button className="btn btn-ghost !px-2 !py-0.5 text-[11px]" onClick={() => translateOne(seg.id)}>
             <Languages size={10} /> 翻译此表
+          </button>
+        )}
+        {isMathLike && (
+          <button
+            className="btn btn-ghost !border-accent/20 !bg-accent/10 !px-2 !py-0.5 text-[11px] font-semibold text-accent hover:!bg-accent/20"
+            onClick={() => onExplainMath(kind === 'math' ? (block as { latex: string }).latex : seg.text, seg.text)}
+            title="查看该公式的变量字典、大白话直觉与推导步骤"
+          >
+            <Calculator size={11} /> 🔬 公式拆解
           </button>
         )}
         <button
@@ -432,11 +516,13 @@ function BlockSource({
   block,
   diff,
   diffOn,
+  lhClass,
   sortClass
 }: {
   block: Block
   diff: SegmentUnknown | null
   diffOn: boolean
+  lhClass: string
   sortClass: string
 }): React.JSX.Element {
   const plain = blockToPlain(block)
@@ -452,7 +538,7 @@ function BlockSource({
 
   if (block.kind === 'list') {
     return (
-      <div className="min-w-0 select-text text-[14px] leading-[1.7] text-ink-1">
+      <div className={`min-w-0 select-text text-[14px] ${lhClass} text-ink-1`}>
         <ul className={`${block.ordered ? 'list-decimal' : 'list-disc'} space-y-1 pl-5`}>
           {block.items.map((it, i) => (
             <li key={i}>{renderRuns(it.runs)}</li>
@@ -502,7 +588,7 @@ function BlockSource({
 
   if (block.kind === 'blockquote') {
     return (
-      <blockquote className="min-w-0 select-text border-l-4 border-accent/30 pl-3 text-[14px] leading-[1.7] text-ink-1">
+      <blockquote className={`min-w-0 select-text border-l-4 border-accent/30 pl-3 text-[14px] ${lhClass} text-ink-1`}>
         {block.runs.length ? renderRuns(block.runs) : applyDiff(plain)}
       </blockquote>
     )
@@ -527,12 +613,12 @@ function BlockSource({
   }
 
   // paragraph
-  return <div className="min-w-0 select-text text-[14px] leading-[1.7] text-ink-1">{renderRuns(block.runs)}</div>
+  return <div className={`min-w-0 select-text text-[14px] ${lhClass} text-ink-1`}>{renderRuns(block.runs)}</div>
 }
 
 /** 右栏译文：若为表格块且译文含 | 分隔，则还原为表格；否则按行内标记渲染 */
-function TranslationBody({ seg, block }: { seg: Segment; block: Block }): React.JSX.Element {
-  const container = 'min-w-0 text-[14px] leading-[1.7]'
+function TranslationBody({ seg, block, lhClass }: { seg: Segment; block: Block; lhClass: string }): React.JSX.Element {
+  const container = `min-w-0 text-[14px] ${lhClass}`
 
   if (seg.translating) {
     return (
@@ -580,11 +666,13 @@ function TranslationBody({ seg, block }: { seg: Segment; block: Block }): React.
 function SentenceRows({
   seg,
   diff,
-  diffOn
+  diffOn,
+  lhClass
 }: {
   seg: Segment
   diff: SegmentUnknown | null
   diffOn: boolean
+  lhClass: string
 }): React.JSX.Element {
   const srcSentences = splitSentences(seg.text)
   const dstSentences = seg.translation ? splitSentences(seg.translation) : []
@@ -594,7 +682,7 @@ function SentenceRows({
     <div className="space-y-1.5">
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="grid grid-cols-[fit-content(50%)_minmax(0,1fr)] gap-x-6">
-          <div className="min-w-0 select-text text-[14px] leading-[1.7] text-ink-1">
+          <div className={`min-w-0 select-text text-[14px] ${lhClass} text-ink-1`}>
             <span className="mr-1 text-[11px] text-ink-3">({i + 1})</span>
             {diff && diffOn ? (
               highlightSource(srcSentences[i] ?? '', diff)
@@ -602,7 +690,7 @@ function SentenceRows({
               renderMarkup(srcSentences[i] ?? '')
             )}
           </div>
-          <div className="min-w-0 text-[14px] leading-[1.7] text-ink-1">
+          <div className={`min-w-0 text-[14px] ${lhClass} text-ink-1`}>
             {seg.translating ? (
               <span className="stream-caret">{dstSentences[i] ?? ''}</span>
             ) : (

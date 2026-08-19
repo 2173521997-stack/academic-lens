@@ -9,7 +9,10 @@ import { llmChat, agentComplete } from '../lib/llm'
 const THEMES: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: '跟随系统' },
   { value: 'light', label: '浅色' },
-  { value: 'dark', label: '深色' }
+  { value: 'dark', label: '深色' },
+  { value: 'paper', label: '📖 纸质暖白' },
+  { value: 'nord', label: '🌌 极简冷灰' },
+  { value: 'sage', label: '🌿 鼠尾草绿' }
 ]
 
 function StatusChip({ ok, text }: { ok: boolean; text: string }): React.JSX.Element {

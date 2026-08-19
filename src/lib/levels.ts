@@ -23,17 +23,19 @@ export const LEVELS: Record<string, LevelInfo> = {
   'c2': { key: 'c2', label: 'CEFR C2', system: 'CEFR', cefr: 6 },
   'cet4': { key: 'cet4', label: '四级（CET-4）', system: '大学英语', cefr: 4 },
   'cet6': { key: 'cet6', label: '六级（CET-6）', system: '大学英语', cefr: 5 },
+  'kaoyan': { key: 'kaoyan', label: '考研英语核心', system: '研究生统考', cefr: 5 },
   'tem4': { key: 'tem4', label: '专四（TEM-4）', system: '专业英语', cefr: 5 },
   'tem8': { key: 'tem8', label: '专八（TEM-8）', system: '专业英语', cefr: 6 },
   'ielts5': { key: 'ielts5', label: '雅思 5.5', system: '雅思', cefr: 4 },
   'ielts7': { key: 'ielts7', label: '雅思 7.0', system: '雅思', cefr: 6 },
   'toefl85': { key: 'toefl85', label: '托福 85', system: '托福', cefr: 4 },
   'toefl110': { key: 'toefl110', label: '托福 110', system: '托福', cefr: 6 },
+  'csterm': { key: 'csterm', label: '学术/顶会术语', system: '学术前沿', cefr: 6 },
   'unrated': { key: 'unrated', label: '未分级', system: '-', cefr: 0 }
 }
 
 /** 简体中文的常用展示排序（由易到难） */
-export const LEVEL_ORDER = ['unrated', 'a1', 'a2', 'b1', 'cet4', 'ielts5', 'toefl85', 'b2', 'cet6', 'ielts7', 'toefl110', 'tem4', 'c1', 'c2', 'tem8']
+export const LEVEL_ORDER = ['unrated', 'a1', 'a2', 'b1', 'cet4', 'ielts5', 'toefl85', 'b2', 'cet6', 'kaoyan', 'ielts7', 'toefl110', 'tem4', 'c1', 'c2', 'tem8', 'csterm']
 
 export function levelLabel(key?: string): string {
   if (!key || !LEVELS[key]) return '未分级'
@@ -61,10 +63,12 @@ export function resolveLevel(raw: string): string | undefined {
   if (s === 'b2') return 'b2'
   if (s === 'c1') return 'c1'
   if (s === 'c2') return 'c2'
+  if (/kaoyan|考研|研究生/.test(s)) return 'kaoyan'
   if (/cet[-\s]?4|四级/.test(s)) return 'cet4'
   if (/cet[-\s]?6|六级/.test(s)) return 'cet6'
   if (/tem[-\s]?4|专四/.test(s)) return 'tem4'
   if (/tem[-\s]?8|专八/.test(s)) return 'tem8'
+  if (/csterm|学术|术语|顶会|论文/.test(s)) return 'csterm'
   if (/ielts|雅思/.test(s)) {
     if (/(7|8|9)/.test(s)) return 'ielts7'
     return 'ielts5'
@@ -78,4 +82,4 @@ export function resolveLevel(raw: string): string | undefined {
 
 /** 构造分级提示词片段，供词卡/批量分级复用 */
 export const LEVEL_VOCAB =
-  '可用档位：CEFR A1/A2/B1/B2/C1/C2、四级 CET-4、六级 CET-6、专业四级 TEM-4、专业八级 TEM-8、雅思 5.5/7.0、托福 85/110。'
+  '可用档位：CEFR A1/A2/B1/B2/C1/C2、四级 CET-4、六级 CET-6、考研英语核心、专业四级 TEM-4、专业八级 TEM-8、雅思 5.5/7.0、托福 85/110、学术/顶会术语。'

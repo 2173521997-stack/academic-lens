@@ -113,6 +113,14 @@ export async function grabSelection(opts?: { onOwnWrite?: () => void }): Promise
     return { text: '', error: '未检测到选中文字（请确认已在其他应用中选中内容）' }
   }
 
+  // 自动修复 PDF 跨行连字符断词与行内断行
+  const cleanedText = text
+    .replace(/([a-zA-Z]+)-\s*[\r\n]+\s*([a-zA-Z]+)/g, '$1$2')
+    .replace(/([^\r\n])[\r\n]([^\r\n])/g, (_m, p1, p2) => {
+      return /[\u4e00-\u9fa5]/.test(p1) && /[\u4e00-\u9fa5]/.test(p2) ? `${p1}${p2}` : `${p1} ${p2}`
+    })
+    .trim()
+
   // 延迟恢复剪贴板，避免与读取竞争
   setTimeout(() => {
     try {
@@ -123,5 +131,5 @@ export async function grabSelection(opts?: { onOwnWrite?: () => void }): Promise
       /* 恢复失败忽略 */
     }
   }, 2500)
-  return { text }
+  return { text: cleanedText || text }
 }
