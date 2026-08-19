@@ -563,7 +563,7 @@ export default function SettingsView(): React.JSX.Element {
             <div className="flex items-center gap-2">
               {shortcutState && <StatusChip ok={shortcutState.selection} text={shortcutState.selection ? '已注册' : '未注册'} />}
               <kbd className="max-w-[240px] truncate rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12px] font-semibold">
-                {isMac ? '⌘X' : (shortcutState?.registeredAccels?.length ? shortcutState.registeredAccels.join(' · ') : shortcutState?.selectionAccel || 'Alt+X')}
+                {isMac ? '⌘X' : (shortcutState?.registeredAccels?.length ? shortcutState.registeredAccels.join(' · ') : shortcutState?.selectionAccel || 'Ctrl+Shift+X')}
               </kbd>
             </div>
           </div>
@@ -599,7 +599,7 @@ export default function SettingsView(): React.JSX.Element {
           <div className="rounded-xl border border-line bg-surface p-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[12px] font-medium">
-                Windows 取词自检：模拟 Alt+X 全流程（隐藏本窗口 → 复制前台选中 → 读剪贴板）
+                Windows 取词自检：模拟 Ctrl+Shift+X 全流程（隐藏本窗口 → 复制前台选中 → 读剪贴板）
               </span>
               <button
                 className="btn !px-3 !py-1.5 text-[11px]"
@@ -653,7 +653,7 @@ export default function SettingsView(): React.JSX.Element {
           </div>
           <p className="text-[11px] leading-relaxed text-ink-3">
             使用方式：先在任意应用（浏览器 / Word / PDF）里选中单词或句子（焦点须在该应用上），再按{' '}
-            {isMac ? '⌘X' : 'Alt+X / Ctrl+Alt+X / Ctrl+Shift+X（已全部注册，任一可触发）'}
+            {isMac ? '⌘X' : 'Ctrl+Shift+X'}
             即自动「复制 → 唤起小窗 → 翻译」；小窗自身聚焦时按它会提示先选词。
             <br />
             唤起小窗：按 {isMac ? '⌘⇧T' : 'Ctrl+Shift+T'}；或点击系统托盘图标随时唤回。

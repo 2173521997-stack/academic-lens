@@ -67,7 +67,7 @@ const shortcutStatus: Record<'toggle' | 'mode' | 'selection', boolean> = {
   selection: false
 }
 /** 一键翻译当前生效的触发键（Windows 多键并行，取首个成功注册者展示） */
-let selectionAccel = isWin ? 'Alt+X' : 'CommandOrControl+X'
+let selectionAccel = isWin ? 'Ctrl+Shift+X' : 'CommandOrControl+X'
 /** 一键翻译全部已注册的触发键 */
 const registeredAccels: string[] = []
 
@@ -191,7 +191,7 @@ function createWindow(): void {
   mainWindow.setSkipTaskbar(isMini)
 
   if (!isMac) {
-    // Windows：移除默认菜单栏，避免 Alt 组合键被菜单栏吞掉（Alt+X 触发取词失效的根因）
+    // Windows：移除默认菜单栏，避免 Alt 组合键被菜单栏吞掉（取词热键失效的根因）
     // 编辑快捷键（Ctrl+C/V/X/A）用 before-input-event 兜底，右键菜单用 context-menu 补充
     mainWindow.webContents.on('before-input-event', (_e, input) => {
       if (input.type !== 'keyDown' || !input.control || input.meta || input.alt) return
@@ -563,11 +563,11 @@ function registerIpc(): void {
 
 /**
  * 一键翻译触发键注册。
- * Windows 多键并行：Alt+X / Ctrl+Alt+X / Ctrl+Shift+X 同时注册（任一触发即生效），
- * 绕开"Alt 系被输入法/系统吞掉但注册仍返回成功"的盲区。
+ * Windows：Ctrl+Shift+X（避开 Alt 系——Alt+X 常被截图/输入法类软件占用，
+ * 也避免与系统的 Ctrl+X 剪切冲突）；macOS：⌘X。
  */
 function registerSelectionShortcut(): boolean {
-  const candidates = isWin ? ['Alt+X', 'Ctrl+Alt+X', 'Ctrl+Shift+X'] : ['CommandOrControl+X']
+  const candidates = isWin ? ['Ctrl+Shift+X'] : ['CommandOrControl+X']
   registeredAccels.length = 0
   let anyOk = false
   for (const acc of candidates) {
@@ -592,7 +592,7 @@ function registerSelectionShortcut(): boolean {
       registeredAccels.push(acc)
     }
   }
-  selectionAccel = registeredAccels[0] ?? (isWin ? 'Alt+X' : 'CommandOrControl+X')
+  selectionAccel = registeredAccels[0] ?? (isWin ? 'Ctrl+Shift+X' : 'CommandOrControl+X')
   return anyOk
 }
 
@@ -616,8 +616,8 @@ function registerShortcuts(): void {
   shortcutStatus.mode = okM
   if (!okM) console.error('[shortcut] CmdOrCtrl+Shift+M 注册失败（可能被占用）')
 
-  // 一键翻译：macOS ⌘X / Windows Alt+X（失败自动降级） = 复制选中 → 唤起小窗 → 自动填入并翻译
-  // Windows 用 Alt 系而非 Ctrl+X：不劫持系统的「剪切 Ctrl+X」，且 Alt+X 未被系统占用
+  // 一键翻译：macOS ⌘X / Windows Ctrl+Shift+X = 复制选中 → 唤起小窗 → 自动填入并翻译
+  // Windows 用 Ctrl+Shift+X：不劫持系统的「剪切 Ctrl+X」，也不占用 Alt 系（避免与截图软件冲突）
   // 注意顺序：必须先取词再唤起——若先 show/focus 小窗，模拟 Ctrl+C 会复制小窗自己而非前台 App
   // 若自家小窗可见且聚焦，先隐藏让前台回到之前的应用，再取词
   const okX = registerSelectionShortcut()
@@ -701,7 +701,7 @@ function buildMacMenu(): void {
 app.whenReady().then(() => {
   registerIpc()
   if (!isMac) {
-    // Windows：移除默认菜单栏，避免 Alt 组合键被菜单栏抢占（Alt+X 热键失效根因）
+    // Windows：移除默认菜单栏，避免 Alt 组合键被菜单栏抢占（取词热键失效根因）
     Menu.setApplicationMenu(null)
   }
   registerShortcuts()

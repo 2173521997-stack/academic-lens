@@ -138,7 +138,7 @@ export default function QuickTranslate(): React.JSX.Element {
     [run]
   )
 
-  // ⌘X / Alt+X：一键翻译（自动复制选中 → 唤起 → 自动填入并翻译），唤起统一落在单词页面
+  // ⌘X / Ctrl+Shift+X：一键翻译（自动复制选中 → 唤起 → 自动填入并翻译），唤起统一落在单词页面
   useEffect(() => {
     const offText = window.bridge.onSelectionText((text) => {
       const t = text.trim()
