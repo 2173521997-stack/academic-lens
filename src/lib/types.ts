@@ -20,6 +20,14 @@ export type Block =
 
 export type SegmentType = 'h' | 'p' | 'list' | 'table' | 'code' | 'blockquote' | 'image' | 'math'
 
+export interface SegmentRect {
+  /** 归一化坐标 (0..1) 或绝对坐标 */
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface Segment {
   id: string
   /**
@@ -36,12 +44,17 @@ export interface Segment {
   error?: string
   /** PDF 页码（1 起），非 PDF 无此字段 */
   page?: number
+  /** 版面原始坐标位置（百分比 0..100，便于在各类缩放视口下 100% 精确覆盖） */
+  rect?: SegmentRect
 }
 
 export interface DocInfo {
   name: string
   size: number
   path?: string
+  /** 原始文件二进制流（用于高保真原版 Canvas 渲染与双语对照 PDF 生成） */
+  rawBuffer?: Uint8Array
+  pageCount?: number
 }
 
 /* ---------------- 块模型辅助函数 ---------------- */

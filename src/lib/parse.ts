@@ -17,7 +17,8 @@ export function makeSegment(
   type: SegmentType,
   text: string,
   page?: number,
-  block?: Block
+  block?: Block,
+  rect?: import('./types').SegmentRect
 ): Segment {
   const blk = block ?? para(text)
   // text 为空时由块推导可读文本（如 PDF 需先 parse 才能得到），保证提示词/历史/生词分析可用
@@ -29,13 +30,14 @@ export function makeSegment(
     block: blk,
     translation: '',
     translating: false,
-    ...(page !== undefined ? { page } : {})
+    ...(page !== undefined ? { page } : {}),
+    ...(rect ? { rect } : {})
   }
 }
 
 /** 由纯文本构造段落段（外部临时使用，如文本翻译/文件名行） */
-export function makeParagraphSegment(text: string, page?: number): Segment {
-  return makeSegment('p', text, page, para(text))
+export function makeParagraphSegment(text: string, page?: number, rect?: import('./types').SegmentRect): Segment {
+  return makeSegment('p', text, page, para(text), rect)
 }
 
 export function splitParagraphs(text: string): string[] {
@@ -49,7 +51,6 @@ export function splitParagraphs(text: string): string[] {
 /* ================= 行内样式解析 ================= */
 
 function extractRuns(n: Node): Inline[] {
-  const acc: Inline[] = []
   const inner: Inline[] = []
   const walk = (node: Node): void => {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -79,22 +80,7 @@ function extractRuns(n: Node): Inline[] {
     inner.push(...sub)
   }
   walk(n)
-  // 合并相邻普通文本，减少冗余运行
-  let cur: Inline | null = null
-  for (const r of inner) {
-    if (!r.bold && !r.italic && !r.code && !r.link) {
-      if (cur && !cur.bold && !cur.italic && !cur.code && !cur.link) {
-        cur.text += r.text
-        continue
-      }
-      cur = { ...r }
-      acc.push(cur)
-    } else {
-      acc.push({ ...r })
-      cur = null
-    }
-  }
-  return acc
+  return inner
 }
 
 /** 把 DOM 元素的行内子内容提取为 Inline[] */
@@ -104,12 +90,13 @@ export function elementRuns(el: Element): Inline[] {
   return acc.filter((r) => r.text.trim().length > 0)
 }
 
-/* ================= PDF 解析 ================= */
+/* ================= PDF 解析（按页分段，提取段落/标题/列表/表格与排版坐标） ================= */
 
 interface TextItem {
   str: string
   x: number
   y: number
+  width: number
   height: number
   bold: boolean
 }
@@ -119,33 +106,46 @@ interface TextLine {
   y: number
   height: number
   text: string
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+  pageWidth: number
+  pageHeight: number
 }
 
 interface PdfTextItemLike {
   str?: string
+  width?: number
   transform?: number[]
   fontName?: string
 }
 
 async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promise<TextLine[]> {
   const content = await page.getTextContent()
+  const viewport = page.getViewport({ scale: 1.0 })
+  const pageWidth = viewport.width || 612
+  const pageHeight = viewport.height || 792
+
   const items: TextItem[] = []
   let maxH = 8
   for (const it of content.items as unknown as PdfTextItemLike[]) {
     const str = it.str ?? ''
     if (!str) continue
     const t = it.transform ?? [1, 0, 0, 1, 0, 0]
-    const h = Math.abs(t[3] || 0)
+    const h = Math.abs(t[3] || 0) || 9
+    const w = it.width || str.length * h * 0.55
     if (h > maxH) maxH = h
     items.push({
       str,
-      x: t[4],
-      y: t[5],
+      x: t[4] || 0,
+      y: t[5] || 0,
+      width: w,
       height: h,
       bold: /bold/i.test(it.fontName ?? '')
     })
   }
-  items.sort((a, b) => a.y - b.y || a.x - b.x)
+  items.sort((a, b) => b.y - a.y || a.x - b.x)
 
   const lines: TextLine[] = []
   for (const item of items) {
@@ -153,8 +153,23 @@ async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promis
     if (last && Math.abs(item.y - last.y) <= Math.max(item.height, last.height) * 0.5) {
       last.items.push(item)
       last.height = Math.max(last.height, item.height)
+      last.minX = Math.min(last.minX, item.x)
+      last.maxX = Math.max(last.maxX, item.x + item.width)
+      last.minY = Math.min(last.minY, item.y)
+      last.maxY = Math.max(last.maxY, item.y + item.height)
     } else {
-      lines.push({ items: [item], y: item.y, height: item.height, text: '' })
+      lines.push({
+        items: [item],
+        y: item.y,
+        height: item.height,
+        text: '',
+        minX: item.x,
+        maxX: item.x + item.width,
+        minY: item.y,
+        maxY: item.y + item.height,
+        pageWidth,
+        pageHeight
+      })
     }
   }
 
@@ -165,7 +180,7 @@ async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promis
     for (const it of line.items) {
       if (text && it.x > prevEnd + it.height * 0.25) text += ' '
       text += it.str
-      prevEnd = it.x + it.str.length * it.height * 0.55
+      prevEnd = it.x + it.width
     }
     line.text = text
   }
@@ -176,7 +191,6 @@ async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promis
 function isTableRow(line: TextLine): boolean {
   const m = line.text.match(/^(.*?)\s\|(.+)$/)
   if (!m) return false
-  // 按列对齐判断：多个连续的 '|' 分隔且每格非空
   const cells = line.text.split(/\s*\|\s*/)
   return cells.length >= 2 && cells.every((c) => c.trim().length > 0)
 }
@@ -206,16 +220,35 @@ export async function parsePdf(data: Uint8Array, onProgress?: (done: number, tot
       const pageNo = i + 1
       const bodyHeight = lines.reduce((m, l) => Math.max(m, l.height), 8)
 
+      let curLines: TextLine[] = []
       const flushPara = (segNo: number): void => {
-        if (cur.trim()) {
-          segs.push(
-            makeSegment('p', cur.trim(), segNo, { kind: 'paragraph', runs: [{ text: cur.trim() }] })
-          )
-          cur = ''
+        if (!curLines.length) return
+        const curText = curLines.map((l) => l.text).join(' ').trim()
+        if (!curText) {
+          curLines = []
+          return
         }
+
+        const minX = Math.min(...curLines.map((l) => l.minX))
+        const maxX = Math.max(...curLines.map((l) => l.maxX))
+        const minY = Math.min(...curLines.map((l) => l.minY))
+        const maxY = Math.max(...curLines.map((l) => l.maxY))
+        const pw = curLines[0].pageWidth || 612
+        const ph = curLines[0].pageHeight || 792
+
+        const rect = {
+          x: Math.max(0, Math.min(100, (minX / pw) * 100)),
+          y: Math.max(0, Math.min(100, ((ph - maxY) / ph) * 100)),
+          width: Math.max(2, Math.min(100, ((maxX - minX) / pw) * 100)),
+          height: Math.max(1, Math.min(100, ((maxY - minY) / ph) * 100))
+        }
+
+        segs.push(
+          makeSegment('p', curText, segNo, { kind: 'paragraph', runs: [{ text: curText }] }, rect)
+        )
+        curLines = []
       }
 
-      let cur = ''
       let li = 0
       while (li < lines.length) {
         const line = lines[li]
@@ -259,28 +292,30 @@ export async function parsePdf(data: Uint8Array, onProgress?: (done: number, tot
         const isHeading = line.height >= bodyHeight * 1.18
         if (isHeading) {
           flushPara(pageNo)
+          const pw = line.pageWidth || 612
+          const ph = line.pageHeight || 792
+          const rect = {
+            x: Math.max(0, Math.min(100, (line.minX / pw) * 100)),
+            y: Math.max(0, Math.min(100, ((ph - line.maxY) / ph) * 100)),
+            width: Math.max(2, Math.min(100, ((line.maxX - line.minX) / pw) * 100)),
+            height: Math.max(1, Math.min(100, ((line.maxY - line.minY) / ph) * 100))
+          }
           segs.push(
             makeSegment('h', text, pageNo, {
               kind: 'heading',
               level: 2,
               runs: [{ text }]
-            })
+            }, rect)
           )
           li++
           continue
         }
 
-        const gapToNext = nextLine ? nextLine.y - (line.y + line.height) : 0
+        const gapToNext = nextLine ? line.y - (nextLine.y + nextLine.height) : 0
         const paraBreak = gapToNext > Math.max(line.height, 2) * 0.7
-        if (cur) {
-          if (paraBreak || /[.!?;:]$/.test(cur)) {
-            flushPara(pageNo)
-            cur = text
-          } else {
-            cur += ' ' + text
-          }
-        } else {
-          cur = text
+        curLines.push(line)
+        if (paraBreak || /[.!?;:]$/.test(text)) {
+          flushPara(pageNo)
         }
         li++
       }

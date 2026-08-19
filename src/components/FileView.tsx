@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, Fragment } from 'react'
-import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Copy, Highlighter, Image, BookOpen, Award, EyeOff, Eye, Calculator, Layers } from 'lucide-react'
-import { useFileStore, type DocMode } from '../stores/fileStore'
+import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2, MessageSquare, Star, RefreshCw, Highlighter, Image, BookOpen, Award, EyeOff, Eye, Calculator, Layers } from 'lucide-react'
+import { useFileStore, type DocMode, type ViewLayout } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useAppStore } from '../stores/appStore'
 import { useFlashcardStore } from '../stores/flashcardStore'
@@ -8,7 +8,8 @@ import { useAgentStore } from '../stores/agentStore'
 import { useSettingsStore, DOMAIN_LABELS, type DomainPreset } from '../stores/settingsStore'
 import { toast } from '../stores/noticeStore'
 import Segmented from './Segmented'
-import { buildPlainText, buildPlainTextHeader, buildBilingualMarkdown, buildDocxBase64 } from '../lib/exportText'
+import { buildPlainTextHeader, buildBilingualMarkdown, buildDocxBase64 } from '../lib/exportText'
+import { buildBilingualPdfHtml } from '../lib/exportPdf'
 import { analyzeUnknownWords, type SegmentUnknown } from '../lib/unknownWords'
 import { parseInlineMarkdown, splitSentences } from '../lib/inline'
 import { marked } from 'marked'
@@ -16,24 +17,27 @@ import { sanitizeHtml } from '../lib/sanitize'
 import type { Segment, Block, Inline } from '../lib/types'
 import MathModal from './MathModal'
 import QuizModal from './QuizModal'
+import PdfVisualDualView from './PdfVisualDualView'
 
 export default function FileView(): React.JSX.Element {
   const doc = useFileStore((s) => s.doc)
   const segments = useFileStore((s) => s.segments)
   const mode = useFileStore((s) => s.mode)
   const setMode = useFileStore((s) => s.setMode)
+  const viewLayout = useFileStore((s) => s.viewLayout)
+  const setViewLayout = useFileStore((s) => s.setViewLayout)
   const clearDoc = useFileStore((s) => s.clearDoc)
   const progress = useFileStore((s) => s.progress)
   const error = useFileStore((s) => s.error)
   const translateAll = useFileStore((s) => s.translateAll)
   const stopTranslate = useFileStore((s) => s.stopTranslate)
+  const translateOne = useFileStore((s) => s.translateOne)
   const docDomain = useFileStore((s) => s.docDomain)
   const setDocDomain = useFileStore((s) => s.setDocDomain)
   const translating = segments.some((s) => s.translating)
 
   const [exported, setExported] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [exportFormat, setExportFormat] = useState<'plain' | 'bilingual' | 'docx'>('plain')
+  const [exportFormat, setExportFormat] = useState<'pdf' | 'docx' | 'bilingual' | 'plain'>('pdf')
 
   const summary = useFileStore((s) => s.summary)
   const summaryState = useFileStore((s) => s.summaryState)
@@ -42,17 +46,27 @@ export default function FileView(): React.JSX.Element {
 
   const untranslated = useMemo(() => segments.filter((s) => !s.translation && !s.translating && !s.error).length, [segments])
   const doneCount = segments.filter((s) => s.translation).length
+  const isPdf = !!doc?.name.toLowerCase().endsWith('.pdf') && !!doc?.rawBuffer
 
-  const copyAll = (): void => {
-    window.bridge.copyText(buildPlainText(segments))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
+  if (!doc) return <></>
 
   const exportText = async (): Promise<void> => {
     if (!doc) return
     const base = doc.name.replace(/\.[^.]+$/, '')
     try {
+      if (exportFormat === 'pdf') {
+        const html = buildBilingualPdfHtml(doc, segments)
+        const path = await window.bridge.saveFile({
+          defaultPath: `${base}-双语对照打印件.html`,
+          data: html,
+          filters: [{ name: '网页/PDF 打印件', extensions: ['html', 'htm'] }]
+        })
+        if (path) {
+          flashExported()
+          toast('success', '已导出双语对照打印文件（打开即可一键打印/存为 PDF）', '导出成功')
+        }
+        return
+      }
       if (exportFormat === 'docx') {
         const b64 = await buildDocxBase64(segments)
         const path = await window.bridge.saveBuffer({
@@ -60,7 +74,10 @@ export default function FileView(): React.JSX.Element {
           dataB64: b64,
           filters: [{ name: 'Word 文档', extensions: ['docx'] }]
         })
-        if (path) flashExported()
+        if (path) {
+          flashExported()
+          toast('success', '已导出双语对照 Word 文档', '导出成功')
+        }
         return
       }
       const md =
@@ -73,9 +90,12 @@ export default function FileView(): React.JSX.Element {
           { name: '纯文本', extensions: ['txt'] }
         ]
       })
-      if (path) flashExported()
+      if (path) {
+        flashExported()
+        toast('success', '已导出 Markdown 文件', '导出成功')
+      }
     } catch {
-      /* 导出失败静默（用户可重试） */
+      /* 导出失败静默 */
     }
   }
 
@@ -100,9 +120,23 @@ export default function FileView(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* PDF 专属布局切换器 */}
+          {isPdf && mode === 'cn' && (
+            <Segmented<ViewLayout>
+              items={[
+                { value: 'dual', label: '🌓 双栏同构' },
+                { value: 'single-cn', label: '✨ 仅看译文' },
+                { value: 'single-orig', label: '📖 仅看原版' },
+                { value: 'text-split', label: '📝 文本对照' }
+              ]}
+              value={viewLayout}
+              onChange={setViewLayout}
+            />
+          )}
+
           <select
-            className="input !w-auto !px-2 !py-1.5 text-[11px]"
+            className="input !w-auto !px-2 !py-1 text-[11px]"
             value={docDomain ?? ''}
             title="本文档特化翻译领域；选「跟随设置」时用全局领域预设"
             onChange={(e) => setDocDomain(e.target.value === '' ? null : (e.target.value as DomainPreset))}
@@ -114,48 +148,47 @@ export default function FileView(): React.JSX.Element {
               </option>
             ))}
           </select>
+
           {mode === 'cn' && !translating && untranslated > 0 && (
-            <button className="btn btn-primary" onClick={translateAll}>
-              <Languages size={13} /> 整体翻译
+            <button className="btn btn-primary !px-3 !py-1 text-[11px]" onClick={translateAll}>
+              <Languages size={12} /> 整体翻译
             </button>
           )}
           {mode === 'cn' && translating && (
-            <button className="btn" onClick={stopTranslate}>
-              <Square size={12} /> 停止
+            <button className="btn !px-3 !py-1 text-[11px]" onClick={stopTranslate}>
+              <Square size={11} /> 停止
             </button>
           )}
           {mode === 'summary' && summaryState === 'idle' && (
-            <button className="btn btn-primary" onClick={summarize}>
-              <Sparkles size={13} /> 生成摘要
+            <button className="btn btn-primary !px-3 !py-1 text-[11px]" onClick={summarize}>
+              <Sparkles size={12} /> 生成摘要
             </button>
           )}
           {mode === 'summary' && summaryState === 'streaming' && (
-            <button className="btn" onClick={stopSummarize}>
-              <Square size={12} /> 停止
+            <button className="btn !px-3 !py-1 text-[11px]" onClick={stopSummarize}>
+              <Square size={11} /> 停止
             </button>
           )}
-          {mode === 'cn' && (
-            <button className="btn" onClick={copyAll}>
-              {copied ? <Star size={13} className="text-star" /> : <Copy size={13} />}
-              {copied ? '已复制' : '复制译文'}
-            </button>
-          )}
+
+          {/* 导出菜单 */}
           <div className="flex items-center gap-1">
             <select
               className="input !h-7 !w-auto !px-2 text-[11px]"
               value={exportFormat}
-              onChange={(e) => setExportFormat(e.target.value as 'plain' | 'bilingual' | 'docx')}
+              onChange={(e) => setExportFormat(e.target.value as 'pdf' | 'docx' | 'bilingual' | 'plain')}
               title="导出格式"
             >
-              <option value="plain">译文 MD</option>
+              <option value="pdf">双语对照 PDF</option>
+              <option value="docx">双语对照 Word</option>
               <option value="bilingual">双语对照 MD</option>
-              <option value="docx">双语对照 DOCX</option>
+              <option value="plain">中文译文 MD</option>
             </select>
-            <button className="btn" onClick={() => void exportText()}>
-              {exported ? <Star size={13} className="text-star" /> : <Download size={13} />}
+            <button className="btn !px-2.5 !py-1 text-[11px]" onClick={() => void exportText()}>
+              {exported ? <Star size={12} className="text-star" /> : <Download size={12} />}
               {exported ? '已导出' : '导出'}
             </button>
           </div>
+
           <Segmented<DocMode>
             items={[
               { value: 'cn', label: '中文译文' },
@@ -174,13 +207,30 @@ export default function FileView(): React.JSX.Element {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        {mode === 'cn' && <CnSplitView />}
-        {mode === 'summary' && <SummaryCard summary={summary} state={summaryState} error={error} />}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {mode === 'cn' ? (
+          isPdf && viewLayout !== 'text-split' ? (
+            <PdfVisualDualView
+              doc={doc}
+              segments={segments}
+              viewLayout={viewLayout}
+              onTranslateOne={translateOne}
+            />
+          ) : (
+            <div className="h-full overflow-y-auto p-5">
+              <CnSplitView />
+            </div>
+          )
+        ) : (
+          <div className="h-full overflow-y-auto p-5">
+            <SummaryCard summary={summary} state={summaryState} error={error} />
+          </div>
+        )}
       </div>
     </div>
   )
 }
+
 
 /** 中文译文视图：左右双栏对照（左英文原文 / 右中文译文），段落逐行对齐，PDF 按页分组，可高亮生词 */
 function CnSplitView(): React.JSX.Element {

@@ -9,10 +9,14 @@ import { buildTranslateSys, buildBatchSys, buildTableSys } from '../lib/prompt'
 /** 文档视图模式：中文译文（逐段对照）/ 总结 */
 export type DocMode = 'cn' | 'summary'
 
+/** 文档排版视窗布局：左右双屏同构对照 / 仅看原版 / 仅看中文译文版 / 传统文本对照 */
+export type ViewLayout = 'dual' | 'single-cn' | 'single-orig' | 'text-split'
+
 interface FileState {
   doc: DocInfo | null
   segments: Segment[]
   mode: DocMode
+  viewLayout: ViewLayout
   summary: string
   summaryState: 'idle' | 'streaming' | 'done' | 'error'
   progress: { done: number; total: number }
@@ -23,6 +27,7 @@ interface FileState {
   setDoc: (doc: DocInfo, segments: Segment[]) => void
   clearDoc: () => void
   setMode: (mode: DocMode) => void
+  setViewLayout: (layout: ViewLayout) => void
   setDocDomain: (d: DomainPreset | null) => void
 
   translateAll: () => void
@@ -279,6 +284,7 @@ export const useFileStore = create<FileState>((set, get) => {
     doc: null,
     segments: [],
     mode: 'cn',
+    viewLayout: 'dual',
     summary: '',
     summaryState: 'idle',
     progress: { done: 0, total: 0 },
@@ -293,6 +299,7 @@ export const useFileStore = create<FileState>((set, get) => {
         doc,
         segments,
         mode: 'cn',
+        viewLayout: 'dual',
         summary: '',
         summaryState: 'idle',
         progress: { done: 0, total: 0 },
@@ -310,6 +317,8 @@ export const useFileStore = create<FileState>((set, get) => {
     },
 
     setMode: (mode) => set({ mode }),
+
+    setViewLayout: (viewLayout) => set({ viewLayout }),
 
     setDocDomain: (docDomain) => set({ docDomain }),
 
