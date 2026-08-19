@@ -37,7 +37,8 @@ export default function FlashcardView(): React.JSX.Element {
     if (store.error) toast('warning', store.error, '闪卡生成失败', 6000)
   }, [store.error])
   const [tab, setTab] = useState<FlashTab>('card')
-  const [source, setSource] = useState<CardSource>('wordbook')
+  const source = store.source
+  const setSource = (s: CardSource): void => store.setSource(s)
   const [count, setCount] = useState(10)
   const [aiEnhance, setAiEnhance] = useState(hasApi)
   const [customText, setCustomText] = useState('')

@@ -3,6 +3,7 @@ import { ArrowLeft, Download, Languages, Square, Sparkles, BookmarkPlus, Loader2
 import { useFileStore, type DocMode } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useAppStore } from '../stores/appStore'
+import { useFlashcardStore } from '../stores/flashcardStore'
 import { useAgentStore } from '../stores/agentStore'
 import { useSettingsStore, DOMAIN_LABELS, type DomainPreset } from '../stores/settingsStore'
 import { toast } from '../stores/noticeStore'
@@ -221,6 +222,8 @@ function CnSplitView(): React.JSX.Element {
   }
 
   const goFlashcard = (): void => {
+    // 直接进入「当前文档」来源，抽本篇未收藏生词背
+    useFlashcardStore.getState().setSource('doc')
     useAppStore.getState().go('flashcard')
   }
 

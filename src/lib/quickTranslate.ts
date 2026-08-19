@@ -4,6 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { dictLookup } from './dictLookup'
 import { formatUapisCard } from './wordCard'
 import { cleanWord, suggestSpelling } from './wordClean'
+import { buildTranslateSys } from './prompt'
 
 export type QuickMode = 'word' | 'translate' | 'cn2en' | 'polish'
 
@@ -16,9 +17,6 @@ const SYS_WORD =
   'ex1|英文例句 | 中文翻译\n' +
   'ex2|英文例句 | 中文翻译\n' +
   '如果该词是学术术语，在 def 末尾标注「（学术术语：所属领域）」'
-
-const SYS_TRANSLATE =
-  '你是专业学术翻译。将用户提供的英文内容翻译为简体中文，保持学术语气、术语准确、长难句拆分通顺。只输出译文，不要任何解释。'
 
 const SYS_CN2EN_WORD =
   '你是中英词典。用户给出中文词语，请给出最常用、最准确的英文翻译。必须严格按以下格式输出，每行一个字段，不要输出其他内容：\n' +
@@ -180,7 +178,7 @@ function runLlm(
 ): { cancel: () => void } {
   let sys: string
   if (mode === 'cn2en') sys = isCnWord(text) ? SYS_CN2EN_WORD : SYS_CN2EN_SENT
-  else if (mode === 'translate') sys = SYS_TRANSLATE
+  else if (mode === 'translate') sys = buildTranslateSys() // 带全局领域预设 + 术语一致性注入
   else if (mode === 'polish') sys = SYS_POLISH
   else sys = SYS_WORD
 

@@ -296,7 +296,8 @@ export const useFileStore = create<FileState>((set, get) => {
         summary: '',
         summaryState: 'idle',
         progress: { done: 0, total: 0 },
-        error: null
+        error: null,
+        docDomain: null
       })
       useHistoryStore.getState().add('file', doc.name, `${segments.length} 段 · ${(doc.size / 1024).toFixed(1)} KB`)
     },
