@@ -1,4 +1,4 @@
-import { useSettingsStore, DOMAIN_PRESETS } from '../stores/settingsStore'
+import { useSettingsStore, DOMAIN_PRESETS, type DomainPreset } from '../stores/settingsStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 
 const BASE = '你是专业学术翻译。将用户提供的英文内容翻译为简体中文，保持学术语气、术语准确、长难句拆分通顺。'
@@ -28,10 +28,10 @@ function buildTermBlock(): string {
   )
 }
 
-/** 核心翻译系统提示：基础指令 + 领域预设 + 术语注入 */
-export function buildTranslateSys(extra?: string): string {
-  const { domain } = useSettingsStore.getState().settings
-  const seg = DOMAIN_PRESETS[domain ?? 'general'] ?? DOMAIN_PRESETS.general
+/** 核心翻译系统提示：基础指令 + 领域预设 + 术语注入（domain 可显式指定，缺省取全局设置） */
+export function buildTranslateSys(extra?: string, domain?: DomainPreset): string {
+  const d = domain ?? useSettingsStore.getState().settings.domain
+  const seg = DOMAIN_PRESETS[d ?? 'general'] ?? DOMAIN_PRESETS.general
   let sys = `${BASE}${seg ? '\n' + seg : ''}`
   sys += buildTermBlock()
   if (extra) sys += '\n' + extra
@@ -40,17 +40,19 @@ export function buildTranslateSys(extra?: string): string {
 }
 
 /** 批处理 JSON 系统提示（key 为编号） */
-export function buildBatchSys(): string {
+export function buildBatchSys(domain?: DomainPreset): string {
   const base = buildTranslateSys(
-    '输入以 [1] [2] … 编号，你只输出一个 JSON 对象：键为编号字符串（如 "1"、"2"），值为对应译文。不要用 Markdown 代码块包裹。'
+    '输入以 [1] [2] … 编号，你只输出一个 JSON 对象：键为编号字符串（如 "1"、"2"），值为对应译文。不要用 Markdown 代码块包裹。',
+    domain
   )
   return base
 }
 
 /** 表格专用系统提示：保持行列与结构，只译文本，数字/公式/引用不动 */
-export function buildTableSys(): string {
+export function buildTableSys(domain?: DomainPreset): string {
   const base = buildTranslateSys(
-    '输入内容是表格（以 | 分隔）。输出必须保持完全相同的行列数与 | 分隔结构，只翻译单元格内的文字，数字、公式、代码、引用保持不变。不要调整行数或列数。'
+    '输入内容是表格（以 | 分隔）。输出必须保持完全相同的行列数与 | 分隔结构，只翻译单元格内的文字，数字、公式、代码、引用保持不变。不要调整行数或列数。',
+    domain
   )
   return base
 }

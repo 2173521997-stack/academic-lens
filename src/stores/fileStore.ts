@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { DocInfo, Segment } from '../lib/types'
 import { llmStream, llmJSON, type StreamCall } from '../lib/llm'
 import { getCachedTranslation, setCachedTranslation } from '../lib/translationCache'
-import { useSettingsStore } from './settingsStore'
+import { useSettingsStore, type DomainPreset } from './settingsStore'
 import { useHistoryStore } from './historyStore'
 import { buildTranslateSys, buildBatchSys, buildTableSys } from '../lib/prompt'
 
@@ -17,10 +17,13 @@ interface FileState {
   summaryState: 'idle' | 'streaming' | 'done' | 'error'
   progress: { done: number; total: number }
   error: string | null
+  /** 本文档特化翻译领域（null = 跟随全局设置里的领域预设） */
+  docDomain: DomainPreset | null
 
   setDoc: (doc: DocInfo, segments: Segment[]) => void
   clearDoc: () => void
   setMode: (mode: DocMode) => void
+  setDocDomain: (d: DomainPreset | null) => void
 
   translateAll: () => void
   stopTranslate: () => void
@@ -98,7 +101,10 @@ export const useFileStore = create<FileState>((set, get) => {
     set({ progress: { done: get().progress.done + 1, total } })
 
   /** 构造单段翻译系统提示：表格走表格专用提示词，其余走通用（含领域/术语注入） */
-  const sysFor = (seg: Segment): string => (seg.type === 'table' ? buildTableSys() : buildTranslateSys())
+  const sysFor = (seg: Segment): string => {
+    const dd = get().docDomain ?? undefined
+    return seg.type === 'table' ? buildTableSys(dd) : buildTranslateSys(undefined, dd)
+  }
 
   /** 单段流式翻译（长段 / 批量回退 / 单段重试共用） */
   const streamOne = (seg: Segment, model: string): Promise<void> =>
@@ -175,7 +181,7 @@ export const useFileStore = create<FileState>((set, get) => {
       const prompt = batch.map((s, j) => `[${j + 1}] ${s.text}`).join('\n\n')
       const call = llmJSON(
         [
-          { role: 'system', content: buildBatchSys() },
+          { role: 'system', content: buildBatchSys(get().docDomain ?? undefined) },
           { role: 'user', content: prompt }
         ],
         { maxTokens: 8192, temperature: 0.3 }
@@ -277,6 +283,7 @@ export const useFileStore = create<FileState>((set, get) => {
     summaryState: 'idle',
     progress: { done: 0, total: 0 },
     error: null,
+    docDomain: null,
 
     setDoc: (doc, segments) => {
       translateActive = false
@@ -298,10 +305,12 @@ export const useFileStore = create<FileState>((set, get) => {
       translateActive = false
       cancelAllRequests()
       failed = 0
-      set({ doc: null, segments: [], summary: '', summaryState: 'idle', progress: { done: 0, total: 0 }, error: null })
+      set({ doc: null, segments: [], summary: '', summaryState: 'idle', progress: { done: 0, total: 0 }, error: null, docDomain: null })
     },
 
     setMode: (mode) => set({ mode }),
+
+    setDocDomain: (docDomain) => set({ docDomain }),
 
     translateAll: () => {
       const segs = get().segments.filter((s) => !s.translation && !s.translating)

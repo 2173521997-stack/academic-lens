@@ -4,7 +4,7 @@ import { useFileStore, type DocMode } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useAppStore } from '../stores/appStore'
 import { useAgentStore } from '../stores/agentStore'
-import { useSettingsStore } from '../stores/settingsStore'
+import { useSettingsStore, DOMAIN_LABELS, type DomainPreset } from '../stores/settingsStore'
 import { toast } from '../stores/noticeStore'
 import Segmented from './Segmented'
 import { buildPlainText, buildPlainTextHeader, buildBilingualMarkdown, buildDocxBase64 } from '../lib/exportText'
@@ -24,6 +24,8 @@ export default function FileView(): React.JSX.Element {
   const error = useFileStore((s) => s.error)
   const translateAll = useFileStore((s) => s.translateAll)
   const stopTranslate = useFileStore((s) => s.stopTranslate)
+  const docDomain = useFileStore((s) => s.docDomain)
+  const setDocDomain = useFileStore((s) => s.setDocDomain)
   const translating = segments.some((s) => s.translating)
 
   const [exported, setExported] = useState(false)
@@ -96,6 +98,19 @@ export default function FileView(): React.JSX.Element {
         </div>
 
         <div className="flex items-center gap-3">
+          <select
+            className="input !w-auto !px-2 !py-1.5 text-[11px]"
+            value={docDomain ?? ''}
+            title="本文档特化翻译领域；选「跟随设置」时用全局领域预设"
+            onChange={(e) => setDocDomain(e.target.value === '' ? null : (e.target.value as DomainPreset))}
+          >
+            <option value="">特化：跟随设置</option>
+            {(Object.keys(DOMAIN_LABELS) as DomainPreset[]).map((k) => (
+              <option key={k} value={k}>
+                {DOMAIN_LABELS[k]}
+              </option>
+            ))}
+          </select>
           {mode === 'cn' && !translating && untranslated > 0 && (
             <button className="btn btn-primary" onClick={translateAll}>
               <Languages size={13} /> 整体翻译

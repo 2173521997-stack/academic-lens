@@ -34,6 +34,15 @@ export const DOMAIN_PRESETS: Record<DomainPreset, string> = {
   academic: '学术论文/SSCI 摘要，风格严谨书面，适合投稿润色。'
 }
 
+/** 领域预设的中文展示名（设置页 / 文档页特化选择器共用） */
+export const DOMAIN_LABELS: Record<DomainPreset, string> = {
+  general: '通用',
+  cs: '计算机科学',
+  bio: '生物医学',
+  news: '新闻时政',
+  academic: '学术润色'
+}
+
 export interface Settings {
   provider: string
   baseUrl: string
