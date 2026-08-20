@@ -23,29 +23,43 @@ const NOISE_PREFIXES = [
   /^(?:我想知道|你能告诉我|请给我|给我|生成一个|来一个)+[:：\s]*/i
 ]
 
-/** 疑问与分析连词（标志着需要智能体深度思考与问答） */
-const QUESTION_PATTERNS = /(?:什么|为什么|怎么|如何|哪|区别|对比|分析一下|评析|是否|吗|？|\?|优缺点|异同|原理|机制)/i
-const MULTI_STEP_PATTERNS = /(?:先.*?然后|不仅.*?而且|并且|同时|并为|并帮|并生成|并出题|并编写|步骤)/i
+/** 复合多步骤连接词（标志着需要 ReAct 多步调度与链式交付） */
+const MULTI_STEP_PATTERNS = [
+  /(?:先|首先).*?(?:然后|再|接着|最后)/i,
+  /(?:不仅|不仅要|既要).*?(?:还要|而且|也要)/i,
+  /(?:并且|而且|同时|并结合|并给出|并生成|并编写|并出题|并帮我|并为我)/i,
+  /(?:搜索|查找|检索).*?(?:并|然后|接着).*?(?:复现|总结|出题|分析|写代码|评审|对比)/i
+]
+
+/** 纯学术问答/追问特征（标志着应由大模型直接结合上下文深度回答，不走工具硬匹配） */
+const DIRECT_QA_PATTERNS = [
+  /(?:这两篇|这几篇|两篇|文章|论文|文献).*?(?:区别|异同|不同|优劣|优缺点|对比|差距)/i,
+  /(?:为什么|为何|怎么理解|如何理解|原理是|机制是|本质是|背后的原因)/i,
+  /^(?:为什么|怎么|如何|能否|可以解释|什么是|解释一下|讲讲|聊聊)/i,
+  /(?:优缺点|计算复杂度|瓶颈|局限性在哪里|好在哪里|核心思想是什么)/i
+]
 
 /**
  * 本地智能数据清洗与预处理管道
  * 职责：
- * 1. 清洗输入噪声与口语前缀，但不破坏核心学术语义；
- * 2. 检测当前上下文指代（如“这篇文献”、“当前项目”）；
- * 3. 提取公式、词汇、句式等实体元数据；
- * 4. 仅对极高置信度的极简单指令提供快速通道，把所有复杂意图决策权完整交给智能体大脑！
+ * 1. 清洗输入噪声与口语前缀，保留核心学术语义；
+ * 2. 提取公式、词汇、句式等实体元数据；
+ * 3. 智能判断意图：
+ *    - 复合多步骤任务 ➔ 放行给 ReAct 多步规划；
+ *    - 纯学术问答/探讨 ➔ 放行给大模型直接解答；
+ *    - 明确单一学术/英语功能指令 ➔ 智能提取参数并快速秒级直达工具！
  */
 export function preprocessUserQuery(rawText: string): CleanedQuery {
   const text = rawText.trim()
   if (!text) return { cleanedText: '' }
 
   const curDocName = useFileStore.getState().doc?.name || ''
-  const isQuestion = QUESTION_PATTERNS.test(text)
-  const isMultiStep = MULTI_STEP_PATTERNS.test(text)
+  const isMultiStep = MULTI_STEP_PATTERNS.some((p) => p.test(text))
+  const isDirectQA = DIRECT_QA_PATTERNS.some((p) => p.test(text))
 
   // 1. 提取公式实体
   let detectedLatex: string | undefined
-  const latexMatch = text.match(/\$([^$]+)\$/) || text.match(/\\(?:frac|sum|int|mathbb|mathcal|sqrt|alpha|beta)\b[\s\S]*/)
+  const latexMatch = text.match(/\$([^$]+)\$/) || text.match(/\\(?:frac|sum|int|mathbb|mathcal|sqrt|alpha|beta|gamma|sigma|lambda|nabla)\b[\s\S]*/)
   if (latexMatch) {
     detectedLatex = (latexMatch[1] || latexMatch[0]).trim()
   }
@@ -53,7 +67,7 @@ export function preprocessUserQuery(rawText: string): CleanedQuery {
   // 2. 提取英语单词实体
   const pureWordMatch = text.match(/\b([A-Za-z][A-Za-z'-]{1,45})\b/g)
 
-  // 3. 清洗前缀噪声（仅对非命令文本）
+  // 3. 清洗前缀噪声（仅对非斜杠命令文本）
   let cleanedText = text
   if (!text.startsWith('/')) {
     for (const re of NOISE_PREFIXES) {
@@ -61,8 +75,8 @@ export function preprocessUserQuery(rawText: string): CleanedQuery {
     }
   }
 
-  // 4. 快速通道决策：仅限明确斜杠命令或极简确定性单动词
-  const quickAction = resolveQuickAction(text, cleanedText)
+  // 4. 快速通道决策
+  const quickAction = resolveQuickAction(text, cleanedText, isMultiStep, isDirectQA, detectedLatex)
 
   return {
     cleanedText: cleanedText || text,
@@ -71,27 +85,33 @@ export function preprocessUserQuery(rawText: string): CleanedQuery {
     detectedEntities: {
       words: pureWordMatch || undefined,
       latex: detectedLatex,
-      isQuestion,
+      isQuestion: isDirectQA,
       isMultiStep
     }
   }
 }
 
 /**
- * 快速通道（Fast Track）：
- * 仅对极高置信度的单一命令做直达处理，避免浪费一次 LLM 往返；
- * 任何包含疑问、多步骤、学术讨论、长文本的，一律返回 null 交由智能体！
+ * 智能快速通道（Smart Fast-Track）：
+ * - 复合任务与纯问答坚决放行给大模型；
+ * - 明确的单功能指令（无论是自然语言还是斜杠命令）精准提取参数直达工具！
  */
-function resolveQuickAction(raw: string, cleaned: string): { tool: ToolId; params: Record<string, string> } | null {
-  const t = raw.trim()
-  const cl = cleaned.trim()
-
-  // 1. 凡是问句、长句或多意图，坚决交给智能体大脑
-  if (t.length > 25 || QUESTION_PATTERNS.test(t) || MULTI_STEP_PATTERNS.test(t)) {
+function resolveQuickAction(
+  raw: string,
+  cleaned: string,
+  isMultiStep: boolean,
+  isDirectQA: boolean,
+  detectedLatex?: string
+): { tool: ToolId; params: Record<string, string> } | null {
+  // 1. 复合多任务或纯问答探讨，必须交由智能体大脑处理
+  if (isMultiStep || isDirectQA) {
     return null
   }
 
-  // 2. 斜杠精确命令
+  const t = raw.trim()
+  const cl = cleaned.trim()
+
+  // 2. 斜杠精确命令（支持携带后续参数）
   if (t.startsWith('/')) {
     const cmd = t.slice(1).trim()
     if (/^(?:出题|测验|自测|quiz)/i.test(cmd)) return { tool: 'quiz_generate', params: { context: cmd.replace(/^(?:出题|测验|自测|quiz)\s*/i, '') } }
@@ -112,25 +132,119 @@ function resolveQuickAction(raw: string, cleaned: string): { tool: ToolId; param
     if (/^(?:周报|report)/i.test(cmd)) return { tool: 'report', params: {} }
   }
 
-  // 3. 极简单一短语（查词、抽卡、导航、周报）
-  const singleActions: { re: RegExp; fn: (m: RegExpMatchArray) => { tool: ToolId; params: Record<string, string> } | null }[] = [
-    { re: /^查(?:询|单词|词)?\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i, fn: (m) => ({ tool: 'word_lookup', params: { word: m[1] } }) },
-    { re: /^([a-zA-Z][a-zA-Z'-]{1,45})\s*(?:是什么意思|怎么读|怎么发音)$/i, fn: (m) => ({ tool: 'word_lookup', params: { word: m[1] } }) },
-    { re: /^分级\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i, fn: (m) => ({ tool: 'grade_word', params: { word: m[1] } }) },
-    { re: /^把\s*([a-zA-Z][a-zA-Z'-]{1,45})\s*(?:加入|存入|存进|记到)生词本$/i, fn: (m) => ({ tool: 'wordbook_add', params: { word: m[1] } }) },
-    { re: /^(?:打开|跳转到?|进入)(生词本|闪卡|设置|周报)$/i, fn: (m) => ({ tool: 'navigate', params: { view: m[1] === '生词本' ? 'wordbook' : m[1] === '闪卡' ? 'flashcard' : m[1] === '设置' ? 'settings' : 'stats' } }) },
-    { re: /^抽\s*(\d{1,2})\s*张?闪卡$/i, fn: (m) => ({ tool: 'flashcard_draw', params: { count: m[1] } }) },
-    { re: /^(?:生成)?周报$/i, fn: () => ({ tool: 'report', params: {} }) },
-    { re: /^研读全套包$/i, fn: () => ({ tool: 'pipeline_study_pack', params: {} }) }
-  ]
-
-  for (const item of singleActions) {
-    const m = cl.match(item.re) || t.match(item.re)
-    if (m) {
-      const res = item.fn(m)
-      if (res) return res
-    }
+  // 3. 自然语言学术与英语指令（高置信度智能提取）
+  // 润色英文
+  if (/^(?:润色|精修|改写|polish|学术润色)\s*[:：]?\s*([\s\S]+)/i.test(cl)) {
+    const text = cl.replace(/^(?:润色|精修|改写|polish|学术润色)\s*[:：]?\s*/i, '').trim()
+    if (text.length > 5) return { tool: 'polish_run', params: { text } }
   }
+
+  // 长难句语法拆解
+  if (/(?:长难句|语法拆解|拆解句子|解剖句子|主谓宾分析)\s*[:：]?\s*([\s\S]+)/i.test(cl)) {
+    const sentence = cl.replace(/^.*?(?:长难句|语法拆解|拆解句子|解剖句子|主谓宾分析)\s*[:：]?\s*/i, '').trim()
+    if (sentence.length > 5) return { tool: 'grammar_analyze', params: { sentence } }
+  }
+
+  // 英文近义词辨析（明确针对词汇）
+  if (/(?:同义词辨析|近义词辨析|词汇辨析|辨析单词|区分单词)\s*[:：]?\s*(.+)/i.test(cl)) {
+    const words = cl.replace(/^.*?(?:同义词辨析|近义词辨析|词汇辨析|辨析单词|区分单词)\s*[:：]?\s*/i, '').trim()
+    if (words) return { tool: 'synonym_nuance', params: { words } }
+  }
+
+  // 雅思/托福作文批改
+  if (/(?:雅思作文|托福作文|作文批改|作文打分|批改作文)\s*[:：]?\s*([\s\S]+)/i.test(cl)) {
+    const essay = cl.replace(/^.*?(?:雅思作文|托福作文|作文批改|作文打分|批改作文)\s*[:：]?\s*/i, '').trim()
+    if (essay.length > 20) return { tool: 'ielts_toefl_evaluate', params: { essay } }
+  }
+
+  // 曼彻斯特学术句型检索
+  if (/(?:学术句型|曼彻斯特句型|句型库|phrasebank)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const query = cl.replace(/^.*?(?:学术句型|曼彻斯特句型|句型库|phrasebank)\s*[:：]?\s*/i, '').trim()
+    return { tool: 'phrasebank_query', params: { query } }
+  }
+
+  // 公式解析与推导
+  if (detectedLatex || /(?:讲解公式|推导公式|解释公式|分析公式)\s*[:：]?\s*(.+)/i.test(cl)) {
+    const latex = detectedLatex || cl.replace(/^.*?(?:讲解公式|推导公式|解释公式|分析公式)\s*[:：]?\s*/i, '').trim()
+    if (latex) return { tool: 'math_explain', params: { latex } }
+  }
+
+  // 顶刊同行评审
+  if (/^(?:审稿|同行评审|peer\s*review|批判性评审|给这篇论文审稿|写一份审稿意见)$/i.test(cl)) {
+    return { tool: 'paper_review', params: {} }
+  }
+
+  // 算法复现与 PyTorch 代码骨架
+  if (/^(?:复现|代码骨架|算法复现|生成复现代码|pytorch代码|python实现|算法实现)$/i.test(cl)) {
+    return { tool: 'code_generate', params: {} }
+  }
+
+  // 出题与随堂测验
+  if (/(?:考考我|随堂测验|自测题|出\s*\d*\s*道.*题|出题|随堂练习)/i.test(cl)) {
+    return { tool: 'quiz_generate', params: { context: cl } }
+  }
+
+  // 答卷批改
+  if (/^(?:批改|判卷|打分|交卷|我的答案)|(?:第\s*[1-3一二三]\s*[题\.]|[1-3]\s*[\.\:：、]\s*[A-Da-d])/i.test(cl)) {
+    return { tool: 'quiz_grade', params: { answers: cl } }
+  }
+
+  // 学术论文搜索 (单个搜索动作)
+  if (/^(?:搜索|检索|查找|找).*?(?:论文|文献|arxiv|最新研究)\s*[:：]?\s*(.+)/i.test(cl)) {
+    const query = cl.replace(/^(?:搜索|检索|查找|找).*?(?:论文|文献|arxiv|最新研究)\s*[:：]?\s*/i, '').trim()
+    if (query) return { tool: 'academic_search', params: { query } }
+  }
+
+  // GitHub 开源仓库搜索
+  if (/^(?:搜索|检索|查找|找).*?(?:github|开源代码|开源实现|仓库|repo)\s*[:：]?\s*(.+)/i.test(cl)) {
+    const query = cl.replace(/^(?:搜索|检索|查找|找).*?(?:github|开源代码|开源实现|仓库|repo)\s*[:：]?\s*/i, '').trim()
+    if (query) return { tool: 'github_search', params: { query } }
+  }
+
+  // HuggingFace 模型搜索
+  if (/^(?:搜索|检索|查找|找).*?(?:huggingface|hf|开源模型|模型权重)\s*[:：]?\s*(.+)/i.test(cl)) {
+    const query = cl.replace(/^(?:搜索|检索|查找|找).*?(?:huggingface|hf|开源模型|模型权重)\s*[:：]?\s*/i, '').trim()
+    if (query) return { tool: 'huggingface_search', params: { query } }
+  }
+
+  // 学术项目制管理
+  if (/(?:有哪些|看|查看|列出|显示).*?(?:学术项目|项目列表|研究项目)/i.test(cl)) return { tool: 'project_list', params: {} }
+  if (/(?:新建|创建|建立|开个).*?(?:学术项目|项目)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const title = cl.replace(/^.*?(?:新建|创建|建立|开个).*?(?:学术项目|项目)\s*[:：]?\s*/i, '').trim()
+    return { tool: 'project_create', params: { title } }
+  }
+  if (/(?:项目|全景|跨文献).*?(?:综述|对比总结|全景综述)/i.test(cl)) return { tool: 'project_summary', params: {} }
+  if (/(?:生成|导出).*?(?:bibtex|apa|ieee|gbt7714|引用格式|论文引用)/i.test(cl)) return { tool: 'bibtex_lookup', params: { query: cl } }
+  if (/^(?:总结文档|文档总结|核心摘要|研读全套包|全套学习包)$/i.test(cl)) return { tool: 'pipeline_study_pack', params: {} }
+  if (/^(?:生成周报|学情周报|我的周报|周报)$/i.test(cl)) return { tool: 'report', params: {} }
+
+  // 4. 英语学习基础动作（单词查询、分级、闪卡、生词本、导航）
+  if (/^查(?:询|单词|词)?\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i.test(cl)) {
+    const m = cl.match(/^查(?:询|单词|词)?\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i)
+    if (m) return { tool: 'word_lookup', params: { word: m[1] } }
+  }
+  if (/^([a-zA-Z][a-zA-Z'-]{1,45})\s*(?:是什么意思|怎么读|怎么发音|的含义|的意思)$/i.test(cl)) {
+    const m = cl.match(/^([a-zA-Z][a-zA-Z'-]{1,45})/i)
+    if (m) return { tool: 'word_lookup', params: { word: m[1] } }
+  }
+  if (/^分级\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i.test(cl)) {
+    const m = cl.match(/^分级\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i)
+    if (m) return { tool: 'grade_word', params: { word: m[1] } }
+  }
+  if (/^把\s*([a-zA-Z][a-zA-Z'-]{1,45})\s*(?:加入|存入|存进|记到)生词本$/i.test(cl)) {
+    const m = cl.match(/^把\s*([a-zA-Z][a-zA-Z'-]{1,45})/i)
+    if (m) return { tool: 'wordbook_add', params: { word: m[1] } }
+  }
+  if (/^(?:打开|跳转到?|进入)(生词本|闪卡|设置|周报)$/i.test(cl)) {
+    const m = cl.match(/^(?:打开|跳转到?|进入)(生词本|闪卡|设置|周报)$/i)
+    if (m) return { tool: 'navigate', params: { view: m[1] === '生词本' ? 'wordbook' : m[1] === '闪卡' ? 'flashcard' : m[1] === '设置' ? 'settings' : 'stats' } }
+  }
+  if (/^抽\s*(\d{1,2})\s*张?闪卡$/i.test(cl)) {
+    const m = cl.match(/^抽\s*(\d{1,2})/i)
+    if (m) return { tool: 'flashcard_draw', params: { count: m[1] } }
+  }
+  if (/^(?:生词本概览|掌握情况|复习情况|生词盘点)$/i.test(cl)) return { tool: 'wordbook_summary', params: {} }
 
   return null
 }
+
