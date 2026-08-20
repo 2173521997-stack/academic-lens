@@ -29,6 +29,7 @@ import {
 } from './academicAdvanced'
 import { searchPhrasebank } from './academicPhrasebank'
 import { preprocessUserQuery } from './agentPreprocess'
+import { queryKnowledge, brainstormIdeas, planDailySchedule, getScholarHumorOrWisdom } from './servantTools'
 import { useProjectStore } from '../stores/projectStore'
 
 /* =====================================================================
@@ -164,6 +165,14 @@ export async function runTool(id: ToolId, params: Record<string, string>): Promi
       const r = await heavyHistorySearch(params.keyword ?? params.text ?? '')
       return { text: r.text, digest: r.digest }
     }
+    case 'knowledge_query':
+      return { text: await queryKnowledge(params.topic ?? params.text ?? '') }
+    case 'creative_brainstorm':
+      return { text: await brainstormIdeas(params.theme ?? params.topic ?? params.text ?? '') }
+    case 'daily_planner':
+      return { text: await planDailySchedule(params.time ?? params.need ?? params.text) }
+    case 'scholar_humor_quote':
+      return { text: await getScholarHumorOrWisdom(params.type ?? params.text) }
     default: {
       // 轻量：走既有同步 executor
       const out = executeTool(id, params)
@@ -821,7 +830,11 @@ function buildToolDescs(): string {
     project_create: 'title：新建项目的名称或研究主题',
     project_add_doc: 'project：目标项目名称',
     project_summary: '（无需参数，生成当前学术项目跨文献全景综述）',
-    report: '（无需参数，生成学习周报）'
+    report: '（无需参数，生成学习周报）',
+    knowledge_query: 'topic：需要了解的跨学科概念、通识百科或科学现象（如 "量子纠缠"、"纳什均衡"）',
+    creative_brainstorm: 'theme：可选，研究课题或头脑风暴主题（默认参考当前文献）',
+    daily_planner: 'time：可选，时间安排或今日专注需求',
+    scholar_humor_quote: 'type：可选，humor（学术梗）或 wisdom（哲思轶事）'
   }
   return TOOLS.map((t) => {
     const params = extraParams[t.id] ?? '（无需参数）'

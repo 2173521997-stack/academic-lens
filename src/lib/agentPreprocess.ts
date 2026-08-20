@@ -130,6 +130,10 @@ function resolveQuickAction(
     if (/^(?:研读全套包|全套|studypack)/i.test(cmd)) return { tool: 'pipeline_study_pack', params: {} }
     if (/^(?:润色|polish)/i.test(cmd)) return { tool: 'polish_run', params: { text: cmd.replace(/^(?:润色|polish)\s*/i, '') } }
     if (/^(?:周报|report)/i.test(cmd)) return { tool: 'report', params: {} }
+    if (/^(?:百科|科普|通识|wiki|knowledge)/i.test(cmd)) return { tool: 'knowledge_query', params: { topic: cmd.replace(/^(?:百科|科普|通识|wiki|knowledge)\s*/i, '') } }
+    if (/^(?:灵感|头脑风暴|brainstorm|idea)/i.test(cmd)) return { tool: 'creative_brainstorm', params: { theme: cmd.replace(/^(?:灵感|头脑风暴|brainstorm|idea)\s*/i, '') } }
+    if (/^(?:日程|规划|计划|planner|schedule)/i.test(cmd)) return { tool: 'daily_planner', params: { time: cmd.replace(/^(?:日程|规划|计划|planner|schedule)\s*/i, '') } }
+    if (/^(?:解压|笑话|学术梗|轶事|humor|quote)/i.test(cmd)) return { tool: 'scholar_humor_quote', params: { type: cmd.replace(/^(?:解压|笑话|学术梗|轶事|humor|quote)\s*/i, '') } }
   }
 
   // 3. 自然语言学术与英语指令（高置信度智能提取）
@@ -217,6 +221,23 @@ function resolveQuickAction(
   if (/(?:生成|导出).*?(?:bibtex|apa|ieee|gbt7714|引用格式|论文引用)/i.test(cl)) return { tool: 'bibtex_lookup', params: { query: cl } }
   if (/^(?:总结文档|文档总结|核心摘要|研读全套包|全套学习包)$/i.test(cl)) return { tool: 'pipeline_study_pack', params: {} }
   if (/^(?:生成周报|学情周报|我的周报|周报)$/i.test(cl)) return { tool: 'report', params: {} }
+
+  // 管家博学与日常对话类
+  if (/^(?:通识百科|科普|百科|万物百科|什么是|解释一下概念)\s*[:：]?\s*(.+)/i.test(cl)) {
+    const topic = cl.replace(/^(?:通识百科|科普|百科|万物百科|什么是|解释一下概念)\s*[:：]?\s*/i, '').trim()
+    if (topic) return { tool: 'knowledge_query', params: { topic } }
+  }
+  if (/(?:头脑风暴|灵感激发|科研灵感|提供研究切入点|创新思路|激发灵感)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const theme = cl.replace(/^.*?(?:头脑风暴|灵感激发|科研灵感|提供研究切入点|创新思路|激发灵感)\s*[:：]?\s*/i, '').trim()
+    return { tool: 'creative_brainstorm', params: { theme } }
+  }
+  if (/(?:日程规划|今日规划|学术时间表|学习计划|专注计划|帮我规划一下时间)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const time = cl.replace(/^.*?(?:日程规划|今日规划|学术时间表|学习计划|专注计划|帮我规划一下时间)\s*[:：]?\s*/i, '').trim()
+    return { tool: 'daily_planner', params: { time } }
+  }
+  if (/(?:讲个笑话|学术梗|科学家趣事|学者轶事|科研太累了|放松一下|解压|治愈寄语|好累啊)/i.test(cl)) {
+    return { tool: 'scholar_humor_quote', params: { type: cl } }
+  }
 
   // 4. 英语学习基础动作（单词查询、分级、闪卡、生词本、导航）
   if (/^查(?:询|单词|词)?\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i.test(cl)) {

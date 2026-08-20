@@ -95,7 +95,11 @@ export const FOLLOW_UPS: Partial<Record<ToolId, string[]>> = {
   project_add_doc: ['生成该项目的跨文献全景综述', '去来做学术工作台精读'],
   project_summary: ['基于综述命制 3 道测验题', '去来做学术工作台查看'],
   math_explain: ['讲一讲其中每个符号的含义', '再通俗地解释一遍', '编写 PyTorch 代码实现'],
-  polish_run: ['用精炼语气再润一遍', '去来做学术工作台继续编辑']
+  polish_run: ['用精炼语气再润一遍', '去来做学术工作台继续编辑'],
+  knowledge_query: ['举一个现实中的应用案例', '推荐相关的经典论文或专著', '出 2 道题考考我对这个概念的理解'],
+  creative_brainstorm: ['针对第 1 个切入点细化实验方案', '搜索该方向的相关 arXiv 论文', '为该课题新建学术项目'],
+  daily_planner: ['开始第一个番茄钟专注', '抽 10 张闪卡开始热身', '打开当前文献开始研读'],
+  scholar_humor_quote: ['再讲一个科学家的趣事', '给一句关于坚持科研的名言', '开始今天的文献研读']
 }
 
 /** 需要注入生词本详情的工具（特化注水） */
@@ -433,7 +437,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
           'polish_run',
           'history_search',
           'report',
-          'word_lookup'
+          'word_lookup',
+          'knowledge_query',
+          'creative_brainstorm',
+          'daily_planner',
+          'scholar_humor_quote'
         ])
         if (RICH_TOOLS.has(toolId)) {
           finalizeAssistant(msgId, text)

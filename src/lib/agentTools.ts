@@ -34,6 +34,7 @@ export type ToolCategory =
   | '个性化'
   | '设置'
   | '端侧操作'
+  | '管家博学'
 
 export type ToolId =
   // 学习类
@@ -87,6 +88,11 @@ export type ToolId =
   | 'grammar_analyze'
   | 'synonym_nuance'
   | 'ielts_toefl_evaluate'
+  // 管家博学与日常对话类
+  | 'knowledge_query'
+  | 'creative_brainstorm'
+  | 'daily_planner'
+  | 'scholar_humor_quote'
 
 export interface AgentTool {
   id: ToolId
@@ -144,7 +150,12 @@ export const TOOLS: AgentTool[] = [
   { id: 'wordbook_list', category: '设置', name: '生词本列表', desc: '返回生词本内若干单词及其释义，便于核对与避免重复添加', sideEffect: false, maxParam: 300 },
   // 端侧操作类
   { id: 'speak', category: '端侧操作', name: '朗读', desc: '朗读一段文本（用于单词发音）', sideEffect: false, maxParam: 200 },
-  { id: 'open_external', category: '端侧操作', name: '打开链接', desc: '在浏览器中打开一个合法链接（http/https）', sideEffect: true, maxParam: 300 }
+  { id: 'open_external', category: '端侧操作', name: '打开链接', desc: '在浏览器中打开一个合法链接（http/https）', sideEffect: true, maxParam: 300 },
+  // 管家博学与日常对话类
+  { id: 'knowledge_query', category: '管家博学', name: '万物博学通识', desc: '深入浅出地拆解科学、哲学、历史、前沿跨学科概念与常识百科', sideEffect: false, maxParam: 200 },
+  { id: 'creative_brainstorm', category: '管家博学', name: '科研灵感风暴', desc: '跨学科灵感激发与学术头脑风暴，提供 3~4 个创新研究切入点与跨界类比', sideEffect: false, maxParam: 300 },
+  { id: 'daily_planner', category: '管家博学', name: '学术日程管家', desc: '结合文献进度、待复习生词与今日目标，生成贴心高效的番茄科研专注时间轴', sideEffect: false, maxParam: 300 },
+  { id: 'scholar_humor_quote', category: '管家博学', name: '学术解压与哲思', desc: '缓解科研压力，分享学术幽默梗、著名学者趣闻轶事与治愈哲思箴言', sideEffect: false, maxParam: 100 }
 ]
 
 /** 允许访问的页面视图白名单 */
