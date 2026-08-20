@@ -2,7 +2,7 @@ import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Bot, Send, Square, Trash2, Wrench, AlertTriangle,
   BookOpen, FileText, BadgeCheck, Settings, TerminalSquare, Plus, X, Paperclip,
-  Sparkles, Award
+  Sparkles, Award, MessageSquare, PanelLeftClose, PanelLeftOpen, Edit2
 } from 'lucide-react'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../lib/sanitize'
@@ -155,6 +155,18 @@ function AgentViewInner(): React.JSX.Element {
   const answerConfirm = useAgentStore((s) => s.answerConfirm)
   const [skillsOpen, setSkillsOpen] = useState(false)
 
+  const sessions = useAgentStore((s) => s.sessions)
+  const activeSessionId = useAgentStore((s) => s.activeSessionId)
+  const sidebarOpen = useAgentStore((s) => s.sidebarOpen)
+  const toggleSidebar = useAgentStore((s) => s.toggleSidebar)
+  const createSession = useAgentStore((s) => s.createSession)
+  const switchSession = useAgentStore((s) => s.switchSession)
+  const deleteSession = useAgentStore((s) => s.deleteSession)
+  const renameSession = useAgentStore((s) => s.renameSession)
+
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+
   /** 到期复习提醒：生词本中已到复习期的单词数 */
   const dueCount = wordbookWords.filter((w) => w.srs && w.srs.reps > 0 && isDue(w.srs, Date.now())).length
 
@@ -235,35 +247,136 @@ function AgentViewInner(): React.JSX.Element {
   }, [messages, streaming])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="glass flex shrink-0 items-center justify-between border-b px-5 py-3">
-        <h1 className="flex items-center gap-2 text-[17px] font-semibold">
-          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent-soft text-accent">
-            <Bot size={14} />
-          </span>
-          智能体
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-normal text-accent">
-            Multi-Agent 协作网络
-          </span>
-          {!hasAgentApi && (
-            <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-normal text-danger">未配置 Key</span>
-          )}
-          {fileDoc && <span className="chip max-w-[200px] truncate">{fileDoc.name}</span>}
-        </h1>
-        <div className="flex items-center gap-2">
-          <button
-            className="btn btn-ghost !px-2.5 !py-1 text-[11px] text-ink-2 hover:text-ink-1 flex items-center gap-1.5 border border-line rounded-lg"
-            onClick={() => {
-              clear()
-              toast('success', '已开启新对话，上下文已清空')
-            }}
-            title="清空当前对话上下文，开启全新对话"
-          >
-            <Plus size={13} />
-            <span>新建对话</span>
-          </button>
+    <div className="flex h-full overflow-hidden">
+      {/* 左侧会话侧边栏 */}
+      {sidebarOpen && (
+        <aside className="w-64 border-r border-line bg-surface/40 backdrop-blur-sm flex flex-col shrink-0">
+          <div className="p-3 border-b border-line flex items-center justify-between">
+            <button
+              className="btn btn-primary !w-full !py-2 text-[12px] flex items-center justify-center gap-1.5 font-medium shadow-sm"
+              onClick={() => {
+                createSession()
+                toast('success', '已新建对话')
+              }}
+            >
+              <Plus size={14} />
+              <span>新建对话</span>
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {sessions.map((s) => {
+              const isActive = s.id === activeSessionId
+              const isEditing = editingSessionId === s.id
+
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => switchSession(s.id)}
+                  className={`group relative flex items-center justify-between rounded-xl px-3 py-2.5 text-[12px] cursor-pointer transition ${
+                    isActive
+                      ? 'bg-accent/10 text-accent font-medium'
+                      : 'text-ink-2 hover:bg-surface-hover hover:text-ink-1'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <MessageSquare size={13} className={isActive ? 'text-accent shrink-0' : 'text-ink-3 shrink-0'} />
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editingTitle}
+                        autoFocus
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onBlur={() => {
+                          renameSession(s.id, editingTitle)
+                          setEditingSessionId(null)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            renameSession(s.id, editingTitle)
+                            setEditingSessionId(null)
+                          }
+                        }}
+                        className="input !py-0.5 !px-1.5 text-[12px] w-full"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="truncate">{s.title || '新对话'}</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0 ml-1">
+                    <button
+                      className="p-1 hover:text-ink-1 text-ink-3 rounded"
+                      title="重命名"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditingSessionId(s.id)
+                        setEditingTitle(s.title)
+                      }}
+                    >
+                      <Edit2 size={11} />
+                    </button>
+                    <button
+                      className="p-1 hover:text-danger text-ink-3 rounded"
+                      title="删除对话"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteSession(s.id)
+                        toast('info', '已删除该对话')
+                      }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </aside>
+      )}
+
+      {/* 右侧主对话区 */}
+      <div className="flex h-full flex-1 flex-col min-w-0">
+        <div className="glass flex shrink-0 items-center justify-between border-b px-5 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              className="btn btn-ghost !p-1.5 text-ink-2 hover:text-ink-1"
+              onClick={toggleSidebar}
+              title={sidebarOpen ? '收起会话列表' : '展开会话列表'}
+            >
+              {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+            </button>
+            <h1 className="flex items-center gap-2 text-[16px] font-semibold truncate">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent-soft text-accent shrink-0">
+                <Bot size={14} />
+              </span>
+              <span className="truncate">
+                {sessions.find((s) => s.id === activeSessionId)?.title || '智能体'}
+              </span>
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-normal text-accent shrink-0">
+                Multi-Agent
+              </span>
+              {!hasAgentApi && (
+                <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-normal text-danger shrink-0">未配置 Key</span>
+              )}
+              {fileDoc && <span className="chip max-w-[160px] truncate">{fileDoc.name}</span>}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="btn btn-ghost !px-2.5 !py-1 text-[11px] text-ink-2 hover:text-ink-1 flex items-center gap-1.5 border border-line rounded-lg"
+              onClick={() => {
+                clear()
+                toast('success', '已清空当前对话')
+              }}
+              title="清空当前对话内容"
+            >
+              <Trash2 size={13} />
+              <span>清空本对话</span>
+            </button>
+          </div>
         </div>
-      </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-5">
         <div className="mx-auto max-w-2xl space-y-3">
@@ -562,5 +675,6 @@ function AgentViewInner(): React.JSX.Element {
         </div>
       </div>
     </div>
+  </div>
   )
 }

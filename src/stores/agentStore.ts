@@ -19,6 +19,14 @@ import { parseAnyFile, newId } from '../lib/parse'
 const SESSION_MAX = 60
 const CONTEXT_WINDOW = 24
 
+export interface AgentSession {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: AgentMessage[]
+}
+
 export interface AgentMessage {
   id: string
   role: 'user' | 'assistant' | 'tool'
@@ -48,11 +56,20 @@ export interface PendingConfirm {
 }
 
 interface AgentState {
+  sessions: AgentSession[]
+  activeSessionId: string
+  sidebarOpen: boolean
   messages: AgentMessage[]
   streaming: boolean
   input: string
   hasAgentApi: boolean
   pendingConfirm: PendingConfirm | null
+
+  toggleSidebar: () => void
+  createSession: () => string
+  switchSession: (id: string) => void
+  deleteSession: (id: string) => void
+  renameSession: (id: string, title: string) => void
   send: (raw?: string) => void
   stop: () => void
   clear: () => void
@@ -222,13 +239,19 @@ function buildWordbookPrompt(): string {
 
 export const DOC_QUICK_CMDS = ['/总结', '/翻译', '/解释术语', '/推导公式', '/出题', '/生词本']
 
-export const saveSession = (messages: AgentMessage[]): void => {
-  void window.bridge.storeSet('agentSession', messages.slice(-SESSION_MAX))
+function rebuildHistory(messages: AgentMessage[]): LLMMessage[] {
+  return messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+    .filter((m, i, arr) => {
+      if (i && arr[i - 1].role === m.role) return false
+      return true
+    })
 }
 
-const pushMessages = (messages: AgentMessage[]): void => {
-  setMessages(messages)
-  saveSession(messages)
+export const saveSessions = (sessions: AgentSession[], activeId: string): void => {
+  void window.bridge.storeSet('agentSessions', sessions)
+  void window.bridge.storeSet('agentActiveSessionId', activeId)
 }
 
 // zustand 内部 set（module 级持久化）—— 由于 store 定义中使用闭包，这里用导出 setter
@@ -242,30 +265,96 @@ export const useAgentStore = create<AgentState>((set, get) => {
   setStore = set
   let call: StreamCall | null = null
 
+  const initialSessionId = newId()
+  const initialSession: AgentSession = {
+    id: initialSessionId,
+    title: '新对话',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    messages: []
+  }
+
   /* ---- 会话持久化恢复 ---- */
   let hydrated = false
   const hydrate = async (): Promise<void> => {
     if (hydrated) return
     hydrated = true
     try {
-      const saved = await window.bridge.storeGet<AgentMessage[]>('agentSession')
-      if (Array.isArray(saved)) {
-        set({ messages: saved })
-        // 由消息重建 LLM 历史
-        history = saved
-          .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
-          .filter((m, i, arr) => {
-            // 合并相邻同角色，避免连续 system/空
-            if (i && arr[i - 1].role === m.role) return false
-            return true
+      const savedSessions = await window.bridge.storeGet<AgentSession[]>('agentSessions')
+      const savedActiveId = await window.bridge.storeGet<string>('agentActiveSessionId')
+      if (Array.isArray(savedSessions) && savedSessions.length > 0) {
+        const activeId = savedSessions.some((s) => s.id === savedActiveId) ? savedActiveId! : savedSessions[0].id
+        const currentSession = savedSessions.find((s) => s.id === activeId) || savedSessions[0]
+        set({
+          sessions: savedSessions,
+          activeSessionId: activeId,
+          messages: currentSession.messages
+        })
+        history = rebuildHistory(currentSession.messages)
+      } else {
+        // 兼容迁移旧的单会话存储
+        const oldSaved = await window.bridge.storeGet<AgentMessage[]>('agentSession')
+        if (Array.isArray(oldSaved) && oldSaved.length > 0) {
+          const migratedSession: AgentSession = {
+            id: initialSessionId,
+            title: oldSaved[0]?.content?.slice(0, 16) || '历史对话',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            messages: oldSaved
+          }
+          set({
+            sessions: [migratedSession],
+            activeSessionId: initialSessionId,
+            messages: oldSaved
           })
+          history = rebuildHistory(oldSaved)
+          saveSessions([migratedSession], initialSessionId)
+        }
       }
     } catch {
       /* 非致命：无会话则从空开始 */
     }
   }
   void hydrate()
+
+  const pushMessages = (messages: AgentMessage[]): void => {
+    setMessages(messages)
+    const activeId = get().activeSessionId
+    const currentSessions = get().sessions
+    
+    // 自动为新对话提取标题（前 16 个字符）
+    const firstUserMsg = messages.find((m) => m.role === 'user')
+    const autoTitle = firstUserMsg ? firstUserMsg.content.trim().slice(0, 18) : '新对话'
+
+    const nextSessions = currentSessions.map((s) => {
+      if (s.id === activeId) {
+        return {
+          ...s,
+          title: s.title === '新对话' && autoTitle !== '新对话' ? autoTitle : s.title,
+          updatedAt: Date.now(),
+          messages: messages.slice(-SESSION_MAX)
+        }
+      }
+      return s
+    })
+
+    set({ sessions: nextSessions })
+    saveSessions(nextSessions, activeId)
+  }
+
+  const saveSession = (_messages?: AgentMessage[]): void => {
+    const activeId = get().activeSessionId
+    const messages = _messages ?? get().messages
+    const currentSessions = get().sessions
+    const nextSessions = currentSessions.map((s) => {
+      if (s.id === activeId) {
+        return { ...s, messages: messages.slice(-SESSION_MAX), updatedAt: Date.now() }
+      }
+      return s
+    })
+    set({ sessions: nextSessions })
+    saveSessions(nextSessions, activeId)
+  }
 
   /* ---- 异步工具结果回填 ----
    * 学习类工具（AI 查词 / 分级 / 整理）是异步 LLM 调用。
@@ -585,11 +674,107 @@ export const useAgentStore = create<AgentState>((set, get) => {
   }
 
   return {
+    sessions: [initialSession],
+    activeSessionId: initialSessionId,
+    sidebarOpen: true,
     messages: [],
     streaming: false,
     input: '',
     hasAgentApi: Boolean(useSettingsStore.getState().settings.agentApiKey),
     pendingConfirm: null,
+
+    toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+
+    createSession: () => {
+      call?.cancel()
+      call = null
+      const newSid = newId()
+      const newSess: AgentSession = {
+        id: newSid,
+        title: '新对话',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: []
+      }
+      const nextSessions = [newSess, ...get().sessions]
+      history = []
+      set({
+        sessions: nextSessions,
+        activeSessionId: newSid,
+        messages: [],
+        streaming: false,
+        pendingConfirm: null,
+        input: ''
+      })
+      saveSessions(nextSessions, newSid)
+      return newSid
+    },
+
+    switchSession: (id: string) => {
+      if (id === get().activeSessionId) return
+      call?.cancel()
+      call = null
+      const target = get().sessions.find((s) => s.id === id)
+      if (!target) return
+      history = rebuildHistory(target.messages)
+      set({
+        activeSessionId: id,
+        messages: target.messages,
+        streaming: false,
+        pendingConfirm: null,
+        input: ''
+      })
+      void window.bridge.storeSet('agentActiveSessionId', id)
+    },
+
+    deleteSession: (id: string) => {
+      const currentSessions = get().sessions
+      const nextSessions = currentSessions.filter((s) => s.id !== id)
+      if (nextSessions.length === 0) {
+        const newSid = newId()
+        const blankSess: AgentSession = {
+          id: newSid,
+          title: '新对话',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messages: []
+        }
+        history = []
+        set({
+          sessions: [blankSess],
+          activeSessionId: newSid,
+          messages: [],
+          streaming: false,
+          pendingConfirm: null
+        })
+        saveSessions([blankSess], newSid)
+        return
+      }
+
+      if (id === get().activeSessionId) {
+        const nextActive = nextSessions[0]
+        history = rebuildHistory(nextActive.messages)
+        set({
+          sessions: nextSessions,
+          activeSessionId: nextActive.id,
+          messages: nextActive.messages,
+          streaming: false,
+          pendingConfirm: null
+        })
+        saveSessions(nextSessions, nextActive.id)
+      } else {
+        set({ sessions: nextSessions })
+        saveSessions(nextSessions, get().activeSessionId)
+      }
+    },
+
+    renameSession: (id: string, title: string) => {
+      const trimmed = title.trim() || '未命名对话'
+      const nextSessions = get().sessions.map((s) => (s.id === id ? { ...s, title: trimmed } : s))
+      set({ sessions: nextSessions })
+      saveSessions(nextSessions, get().activeSessionId)
+    },
+
     send,
     stop: () => {
       call?.cancel()
@@ -598,8 +783,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
     clear: () => {
       history = []
-      set({ messages: [], pendingConfirm: null })
-      void window.bridge.storeSet('agentSession', [])
+      const activeId = get().activeSessionId
+      const nextSessions = get().sessions.map((s) => (s.id === activeId ? { ...s, messages: [], updatedAt: Date.now() } : s))
+      set({ messages: [], pendingConfirm: null, sessions: nextSessions })
+      saveSessions(nextSessions, activeId)
     },
     setInput: (v) => set({ input: v }),
     appendInput: (refText) => set((s) => ({ input: s.input ? `${s.input} ${refText}` : refText })),
