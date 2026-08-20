@@ -134,6 +134,10 @@ function resolveQuickAction(
     if (/^(?:灵感|头脑风暴|brainstorm|idea)/i.test(cmd)) return { tool: 'creative_brainstorm', params: { theme: cmd.replace(/^(?:灵感|头脑风暴|brainstorm|idea)\s*/i, '') } }
     if (/^(?:日程|规划|计划|planner|schedule)/i.test(cmd)) return { tool: 'daily_planner', params: { time: cmd.replace(/^(?:日程|规划|计划|planner|schedule)\s*/i, '') } }
     if (/^(?:解压|笑话|学术梗|轶事|humor|quote)/i.test(cmd)) return { tool: 'scholar_humor_quote', params: { type: cmd.replace(/^(?:解压|笑话|学术梗|轶事|humor|quote)\s*/i, '') } }
+    if (/^(?:文学|文学翻译|散文翻译|诗歌翻译|literary)/i.test(cmd)) return { tool: 'literary_translate', params: { text: cmd.replace(/^(?:文学|文学翻译|散文翻译|诗歌翻译|literary)\s*/i, '') } }
+    if (/^(?:修辞|细读|文学赏析|closereading|rhetoric)/i.test(cmd)) return { tool: 'literary_rhetoric_analyze', params: { text: cmd.replace(/^(?:修辞|细读|文学赏析|closereading|rhetoric)\s*/i, '') } }
+    if (/^(?:哲学|思辨|人文批判|书评|critique)/i.test(cmd)) return { tool: 'humanities_critique', params: { text: cmd.replace(/^(?:哲学|思辨|人文批判|书评|critique)\s*/i, '') } }
+    if (/^(?:典故|名句|溯源|考据|allusion)/i.test(cmd)) return { tool: 'classic_allusion_lookup', params: { query: cmd.replace(/^(?:典故|名句|溯源|考据|allusion)\s*/i, '') } }
   }
 
   // 3. 自然语言学术与英语指令（高置信度智能提取）
@@ -237,6 +241,24 @@ function resolveQuickAction(
   }
   if (/(?:讲个笑话|学术梗|科学家趣事|学者轶事|科研太累了|放松一下|解压|治愈寄语|好累啊)/i.test(cl)) {
     return { tool: 'scholar_humor_quote', params: { type: cl } }
+  }
+
+  // 人文社科与文学翻译类
+  if (/(?:文学翻译|文学精翻|信达雅翻译|翻译成散文|诗歌翻译|小说翻译)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const text = cl.replace(/^.*?(?:文学翻译|文学精翻|信达雅翻译|翻译成散文|诗歌翻译|小说翻译)\s*[:：]?\s*/i, '').trim()
+    return { tool: 'literary_translate', params: { text } }
+  }
+  if (/(?:文本细读|修辞分析|文学赏析|隐喻分析|象征手法|修辞艺术)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const text = cl.replace(/^.*?(?:文本细读|修辞分析|文学赏析|隐喻分析|象征手法|修辞艺术)\s*[:：]?\s*/i, '').trim()
+    return { tool: 'literary_rhetoric_analyze', params: { text } }
+  }
+  if (/(?:哲学思辨|人文批判|思想谱系|批判性书评|哲学辨析)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const text = cl.replace(/^.*?(?:哲学思辨|人文批判|思想谱系|批判性书评|哲学辨析)\s*[:：]?\s*/i, '').trim()
+    return { tool: 'humanities_critique', params: { text } }
+  }
+  if (/(?:典故溯源|考据典故|名句出处|神话隐喻|追溯典故)\s*[:：]?\s*(.*)/i.test(cl)) {
+    const query = cl.replace(/^.*?(?:典故溯源|考据典故|名句出处|神话隐喻|追溯典故)\s*[:：]?\s*/i, '').trim()
+    if (query) return { tool: 'classic_allusion_lookup', params: { query } }
   }
 
   // 4. 英语学习基础动作（单词查询、分级、闪卡、生词本、导航）

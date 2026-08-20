@@ -30,6 +30,7 @@ import {
 import { searchPhrasebank } from './academicPhrasebank'
 import { preprocessUserQuery } from './agentPreprocess'
 import { queryKnowledge, brainstormIdeas, planDailySchedule, getScholarHumorOrWisdom } from './servantTools'
+import { translateLiterary, analyzeLiteraryRhetoric, critiqueHumanities, lookupClassicAllusion } from './humanitiesTools'
 import { useProjectStore } from '../stores/projectStore'
 
 /* =====================================================================
@@ -173,6 +174,14 @@ export async function runTool(id: ToolId, params: Record<string, string>): Promi
       return { text: await planDailySchedule(params.time ?? params.need ?? params.text) }
     case 'scholar_humor_quote':
       return { text: await getScholarHumorOrWisdom(params.type ?? params.text) }
+    case 'literary_translate':
+      return { text: await translateLiterary(params.text ?? '', params.style) }
+    case 'literary_rhetoric_analyze':
+      return { text: await analyzeLiteraryRhetoric(params.text ?? '') }
+    case 'humanities_critique':
+      return { text: await critiqueHumanities(params.text ?? '') }
+    case 'classic_allusion_lookup':
+      return { text: await lookupClassicAllusion(params.query ?? params.text ?? '') }
     default: {
       // 轻量：走既有同步 executor
       const out = executeTool(id, params)
@@ -834,7 +843,11 @@ function buildToolDescs(): string {
     knowledge_query: 'topic：需要了解的跨学科概念、通识百科或科学现象（如 "量子纠缠"、"纳什均衡"）',
     creative_brainstorm: 'theme：可选，研究课题或头脑风暴主题（默认参考当前文献）',
     daily_planner: 'time：可选，时间安排或今日专注需求',
-    scholar_humor_quote: 'type：可选，humor（学术梗）或 wisdom（哲思轶事）'
+    scholar_humor_quote: 'type：可选，humor（学术梗）或 wisdom（哲思轶事）',
+    literary_translate: 'text：待翻译的文学作品/诗歌/小说/散文；style：可选风格（如 "信达雅"、"古典文雅"）',
+    literary_rhetoric_analyze: 'text：待进行文本细读（Close Reading）与修辞分析的文学/社科片段',
+    humanities_critique: 'text：待进行哲学思辨与学术批判的人文社科文本/核心论题',
+    classic_allusion_lookup: 'query：要溯源考据的典故、名句、神话或文化隐喻（如 "阿喀琉斯之踵"）'
   }
   return TOOLS.map((t) => {
     const params = extraParams[t.id] ?? '（无需参数）'

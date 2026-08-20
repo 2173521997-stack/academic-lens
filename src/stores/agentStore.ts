@@ -99,7 +99,11 @@ export const FOLLOW_UPS: Partial<Record<ToolId, string[]>> = {
   knowledge_query: ['举一个现实中的应用案例', '推荐相关的经典论文或专著', '出 2 道题考考我对这个概念的理解'],
   creative_brainstorm: ['针对第 1 个切入点细化实验方案', '搜索该方向的相关 arXiv 论文', '为该课题新建学术项目'],
   daily_planner: ['开始第一个番茄钟专注', '抽 10 张闪卡开始热身', '打开当前文献开始研读'],
-  scholar_humor_quote: ['再讲一个科学家的趣事', '给一句关于坚持科研的名言', '开始今天的文献研读']
+  scholar_humor_quote: ['再讲一个科学家的趣事', '给一句关于坚持科研的名言', '开始今天的文献研读'],
+  literary_translate: ['对该段落进行文学修辞与文本细读', '换成更典雅的古文/诗体再译一遍', '考据文中的文学典故'],
+  literary_rhetoric_analyze: ['针对核心隐喻提供文学精翻', '分析该篇目的时代互文背景', '出 2 道文学赏析自测题'],
+  humanities_critique: ['梳理该哲学流派的思想演进谱系', '提出 3 个反对该观点的批判性视角', '搜索相关的人文社科经典文献'],
+  classic_allusion_lookup: ['给出该典故在学术写作中的经典例句', '推荐包含该典故的文学名著', '讲讲相关的神话故事背景']
 }
 
 /** 需要注入生词本详情的工具（特化注水） */
@@ -441,7 +445,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
           'knowledge_query',
           'creative_brainstorm',
           'daily_planner',
-          'scholar_humor_quote'
+          'scholar_humor_quote',
+          'literary_translate',
+          'literary_rhetoric_analyze',
+          'humanities_critique',
+          'classic_allusion_lookup'
         ])
         if (RICH_TOOLS.has(toolId)) {
           finalizeAssistant(msgId, text)

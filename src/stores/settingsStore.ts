@@ -24,14 +24,16 @@ export type ThemeMode = 'system' | 'light' | 'dark' | 'paper' | 'nord' | 'sage'
 export type LookupSource = 'dict' | 'llm'
 
 /** 领域/风格翻译预设：切换翻译提示词模板的措辞倾向 */
-export type DomainPreset = 'general' | 'cs' | 'bio' | 'news' | 'academic'
+export type DomainPreset = 'general' | 'cs' | 'bio' | 'news' | 'academic' | 'literature' | 'philosophy'
 
 export const DOMAIN_PRESETS: Record<DomainPreset, string> = {
   general: '普通阅读，通用与准确并重。',
   cs: '计算机/算法领域论文，术语采用 CS 领域通行译法，代码与标识符保持英文不译。',
   bio: '生物/医学领域课件，专业名词采用教科书标准译法，保留拉丁学名。',
   news: '新闻/时政类文稿，翻译自然流畅，保留专有名词原样。',
-  academic: '学术论文/SSCI 摘要，风格严谨书面，适合投稿润色。'
+  academic: '学术论文/SSCI 摘要，风格严谨书面，适合投稿润色。',
+  literature: '文学与散文作品，讲求信达雅、意象传递与音韵优美，避免机械生硬翻译。',
+  philosophy: '人文社科与哲学经典，严谨把握概念范畴，辨析德/法/英/希腊文哲学核心概念。'
 }
 
 /** 领域预设的中文展示名（设置页 / 文档页特化选择器共用） */
@@ -40,7 +42,9 @@ export const DOMAIN_LABELS: Record<DomainPreset, string> = {
   cs: '计算机科学',
   bio: '生物医学',
   news: '新闻时政',
-  academic: '学术润色'
+  academic: '学术润色',
+  literature: '文学艺术',
+  philosophy: '人文哲学'
 }
 
 export interface Settings {

@@ -35,6 +35,7 @@ export type ToolCategory =
   | '设置'
   | '端侧操作'
   | '管家博学'
+  | '人文社科'
 
 export type ToolId =
   // 学习类
@@ -93,6 +94,11 @@ export type ToolId =
   | 'creative_brainstorm'
   | 'daily_planner'
   | 'scholar_humor_quote'
+  // 人文社科与文学翻译类
+  | 'literary_translate'
+  | 'literary_rhetoric_analyze'
+  | 'humanities_critique'
+  | 'classic_allusion_lookup'
 
 export interface AgentTool {
   id: ToolId
@@ -155,7 +161,12 @@ export const TOOLS: AgentTool[] = [
   { id: 'knowledge_query', category: '管家博学', name: '万物博学通识', desc: '深入浅出地拆解科学、哲学、历史、前沿跨学科概念与常识百科', sideEffect: false, maxParam: 200 },
   { id: 'creative_brainstorm', category: '管家博学', name: '科研灵感风暴', desc: '跨学科灵感激发与学术头脑风暴，提供 3~4 个创新研究切入点与跨界类比', sideEffect: false, maxParam: 300 },
   { id: 'daily_planner', category: '管家博学', name: '学术日程管家', desc: '结合文献进度、待复习生词与今日目标，生成贴心高效的番茄科研专注时间轴', sideEffect: false, maxParam: 300 },
-  { id: 'scholar_humor_quote', category: '管家博学', name: '学术解压与哲思', desc: '缓解科研压力，分享学术幽默梗、著名学者趣闻轶事与治愈哲思箴言', sideEffect: false, maxParam: 100 }
+  { id: 'scholar_humor_quote', category: '管家博学', name: '学术解压与哲思', desc: '缓解科研压力，分享学术幽默梗、著名学者趣闻轶事与治愈哲思箴言', sideEffect: false, maxParam: 100 },
+  // 人文社科与文学翻译类
+  { id: 'literary_translate', category: '人文社科', name: '文学精翻与译赏', desc: '提供信达雅现代散文体、古典文雅体与名家译法意象深度剖析', sideEffect: false, maxParam: 2000 },
+  { id: 'literary_rhetoric_analyze', category: '人文社科', name: '文本细读与修辞', desc: '深入剖析文学作品中的隐喻象征、音韵节奏、基调风格与互文性语境', sideEffect: false, maxParam: 1500 },
+  { id: 'humanities_critique', category: '人文社科', name: '人文哲学思辨', desc: '深度提炼人文社科与哲学文献的核心概念范畴、思想谱系与批判性反思', sideEffect: false, maxParam: 2000 },
+  { id: 'classic_allusion_lookup', category: '人文社科', name: '经典典故溯源', desc: '考据西方文学名篇、古希腊罗马神话、圣经叙事与名句的出处与文化意涵', sideEffect: false, maxParam: 150 }
 ]
 
 /** 允许访问的页面视图白名单 */
