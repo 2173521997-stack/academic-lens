@@ -507,23 +507,23 @@ async function toEnglishAcademicKeyword(userQuery: string): Promise<string> {
     return userQuery.trim()
   }
   const prompt =
-    `请把用户的学术检索需求提炼为 1 到 3 个精准的英文学术检索关键词（用于 arXiv 检索，如 "Transformer architecture" 或 "LLM multi-agent"）。\n` +
-    `如果用户在指代当前文档，请参考当前文档名「${curDoc}」。\n` +
-    `【要求】：只输出提炼后的英文检索关键词，不要输出任何标点符号、中文或额外说明。\n` +
-    `用户输入：${userQuery}`
+    `You are an academic research assistant. Extract only the 1-3 core English academic keywords from the user's research query for arXiv paper search (e.g., "Transformer Mamba", "Diffusion Model", "Graph Neural Network").\n` +
+    `Reference doc context: "${curDoc}".\n` +
+    `Rules: Output ONLY the English keywords, without any Chinese, punctuation, or explanations.\n` +
+    `User query: ${userQuery}`
 
   try {
     const res = await agentComplete(
       [
-        { role: 'system', content: 'You are an academic search keyword extractor. Output only English search keywords.' },
+        { role: 'system', content: 'You extract English keywords for arXiv paper search. Output only English keywords.' },
         { role: 'user', content: prompt }
       ],
       { temperature: 0, maxTokens: 40 }
     ).promise
-    const kw = res.trim().replace(/['"“”]/g, '').replace(/\n.*/g, '').trim()
-    return kw || userQuery.replace(/[\u4e00-\u9fa5]/g, ' ').trim() || 'Transformer'
+    const kw = res.trim().replace(/[^a-zA-Z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim()
+    return kw || userQuery.replace(/[^a-zA-Z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Transformer'
   } catch {
-    return userQuery.replace(/[\u4e00-\u9fa5]/g, ' ').trim() || 'Transformer'
+    return userQuery.replace(/[^a-zA-Z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Transformer'
   }
 }
 
@@ -534,23 +534,23 @@ async function toGithubSearchKeyword(userQuery: string): Promise<string> {
     return userQuery.trim()
   }
   const prompt =
-    `请把用户的 GitHub 仓库/开源实现检索需求提炼为一个精准的项目、模型或算法英文名称（用于 GitHub API 检索，如 "vllm"、"llama"、"transformers"、"autogen"）。\n` +
-    `如果用户在指代当前文档或刚才提到的论文，请参考「${curDoc}」。\n` +
-    `【要求】：只输出英文项目关键词，不要输出任何额外废话。\n` +
-    `用户输入：${userQuery}`
+    `You are a software engineering assistant. Extract only the primary English project, repository, or model name for GitHub API search (e.g., "vllm", "llama", "transformers", "autogen", "mamba").\n` +
+    `Reference doc context: "${curDoc}".\n` +
+    `Rules: Output ONLY the English project keyword, without any Chinese or explanations.\n` +
+    `User query: ${userQuery}`
 
   try {
     const res = await agentComplete(
       [
-        { role: 'system', content: 'You are a GitHub search keyword extractor. Output only the English project or model keyword.' },
+        { role: 'system', content: 'You extract GitHub search keywords. Output only English keywords.' },
         { role: 'user', content: prompt }
       ],
       { temperature: 0, maxTokens: 40 }
     ).promise
-    const kw = res.trim().replace(/['"“”]/g, '').replace(/\n.*/g, '').trim()
-    return kw || userQuery.replace(/[\u4e00-\u9fa5]/g, ' ').trim() || 'transformers'
+    const kw = res.trim().replace(/[^a-zA-Z0-9\s-_]/g, ' ').replace(/\s+/g, ' ').trim()
+    return kw || userQuery.replace(/[^a-zA-Z0-9\s-_]/g, ' ').replace(/\s+/g, ' ').trim() || 'transformers'
   } catch {
-    return userQuery.replace(/[\u4e00-\u9fa5]/g, ' ').trim() || 'transformers'
+    return userQuery.replace(/[^a-zA-Z0-9\s-_]/g, ' ').replace(/\s+/g, ' ').trim() || 'transformers'
   }
 }
 
@@ -813,19 +813,19 @@ function buildToolDescs(): string {
 
 /** ReAct 系统提示 */
 const REACT_SYS = (): string =>
-  '你是 Academic Lens 的高级学术智能体，用简体中文为用户完成英文阅读、背单词与学术测验相关操作。\n' +
-  '你可以按需连续调用多个工具（工具结果会回显给你），先想清楚再决定下一步，前一个工具的结果可作为下一步的输入。\n\n' +
+  '你是 Academic Lens 的高级学术智能体与多学科研究导师，用严谨、清晰、详尽的简体中文为用户提供学术研究、文献精读、算法复现与英语学习支持。\n' +
+  '你可以按需自主连续调用工具（工具结果会回显给你），先想清楚再决定下一步，前一个工具的结果可作为下一步的输入。\n\n' +
   '【核心行为准则】\n' +
-  '1. 动作优先：若用户意图是出题/测验（如「基于摘要出 3 道理解题」），核心动作是出题，选择 quiz_generate，若需参考摘要先调用或读取摘要后再出题；\n' +
-  '2. 原地交付：直接在回答中给出具体内容（如测验题目、文档摘要、单词释义）。严禁回复「请去某某页面查看」、「已为您触发」等传话式回复！\n' +
-  '3. 积极引导：给出随堂测验时，主动提示用户直接回复答案批改；给出摘要后可引导用户做测验。\n' +
-  '4. 杜绝死循环：如果上一步工具已经返回了有效数据，不要重复调用相同工具，立即组织最终回答（done: true）。\n\n' +
+  '1. 智能问答与学术对比：当用户提出学术问题、追问或对比分析（如「这两篇文章有什么区别？」、「Transformer 和 Mamba 各有什么优劣」），若无需调用新工具，直接在 answer 中给出专业、结构化、深入透彻的解答！\n' +
+  '2. 复合任务链式交付：若用户提出复合任务（如「搜索 Transformer 与 Mamba 论文，并做对比分析且出 3 道题」），请先调用 academic_search 检索论文，在拿到观察结果后，组织完整的对比分析并在 answer 中直接附上 3 道理解测验题！\n' +
+  '3. 原地完整交付：直接在回答中给出具体内容（如测验题目、文献摘要、对比表格、代码骨架、术语辨析）。绝对禁止回复「请去某某页面查看」、「已为您触发」等传话式废话！\n' +
+  '4. 杜绝死循环：如果上一步工具已经返回了有效数据，不要重复调用相同工具，立即组织最终回答（输出 {"done":true,"answer":"..."}）。\n\n' +
   `当前上下文：\n${wordbookContextText()}\n查词方式：${lookupModeHint()}\n` +
   `可用工具：\n${buildToolDescs()}\n\n` +
   '工作方式（严格 JSON，一次输出一条）：\n' +
   '1) 需要执行工具时，输出：{"tool":"<工具id>","params":{...}}，必要参数必须填全。\n' +
-  '2) 当目标已达成、或请求无需工具时，输出：{"done":true,"answer":"最终回答"}，answer 用流畅自然的简体中文直接回答用户。\n' +
-  '禁止编造未执行的操作。只输出上述 JSON，不要输出任何其他解释文字。'
+  '2) 当目标已达成、或请求为纯问答/追问时，输出：{"done":true,"answer":"详细解答内容"}，answer 必须包含完整、充实、高质量的 Markdown 解答，绝不能留空。\n' +
+  '只输出上述 JSON，不要输出任何其他解释文字。'
 
 interface ReActDecision {
   tool?: string
@@ -877,13 +877,24 @@ export async function runReAct(
   let answer = ''
   let parseFails = 0
   for (let i = 0; i < maxSteps; i++) {
-    const decRaw = await agentComplete(messages, { temperature: 0, maxTokens: 1024, json: true })
+    const decRaw = await agentComplete(messages, { temperature: 0.1, maxTokens: 1400, json: true })
     const decision = extractJsonObj(await decRaw.promise)
     if (!decision) {
       // 自愈：JSON 解析失败时把错误回填给 LLM 重新决策，最多重试 1 次，避免白白耗尽步数
       parseFails++
       if (parseFails >= 2) {
-        answer = '智能体解析失败，请换个说法再试。'
+        // 直接降级为自然对话问答
+        try {
+          const directChatPrompt: LLMMessage[] = [
+            { role: 'system', content: '你是 Academic Lens 的高级学术智能体。请用专业、详尽、清晰的 Markdown 直接解答用户问题。' },
+            ...(opts.context ?? []),
+            { role: 'user', content: userText }
+          ]
+          const directRes = await agentComplete(directChatPrompt, { temperature: 0.3, maxTokens: 1600 }).promise
+          answer = directRes.trim()
+        } catch {
+          answer = '智能体正在处理中，请稍后重试。'
+        }
         break
       }
       messages = [
@@ -893,9 +904,22 @@ export async function runReAct(
       continue
     }
 
-    // 收尾
+    // 收尾判定
     if (isFinalAnswer(decision)) {
-      answer = (decision.answer ?? '').trim() || '（已完成）'
+      answer = (decision.answer ?? '').trim()
+      // 如果大模型输出了 done 但 answer 为空，绝不输出冷冰冰的 (已完成)，立即调用大模型生成完整学术解答
+      if (!answer) {
+        try {
+          const directChatPrompt: LLMMessage[] = [
+            { role: 'system', content: '你是 Academic Lens 的高级学术智能体。请结合以上上下文，用严谨、专业、清晰的 Markdown 详尽回答用户的问题或进行对比分析。' },
+            ...messages
+          ]
+          const directRes = await agentComplete(directChatPrompt, { temperature: 0.3, maxTokens: 1600 }).promise
+          answer = directRes.trim()
+        } catch {
+          answer = steps.slice(-1)[0]?.observation ?? '已为您完成处理。'
+        }
+      }
       steps.push({ kind: 'done' })
       break
     }
@@ -940,192 +964,83 @@ export async function runReAct(
     const step: AgentStep = { kind: 'tool', toolId, toolLabel: tool.name, sideEffect: tool.sideEffect, observation: result.text }
     steps.push(step)
     opts.onStep?.(step)
-    // 回填观察：优先用结构化摘要（digest），避免大结果被截断导致决策失真
+    // 回填观察：优先用结构化摘要（digest），支持 3000 字符长上下文
     const digest = result.digest ?? result.text
     const observation = `${tool.name} 执行结果：\n${digest.slice(0, 3000)}`
-    messages = [...messages, { role: 'user', content: `工具「${tool.name}」执行完毕，结果如下：\n${observation}\n请根据该结果决定下一步：继续调用工具，或给出最终回答。` }]
+    messages = [...messages, { role: 'user', content: `工具「${tool.name}」执行完毕，结果如下：\n${observation}\n请根据该结果决定下一步：继续调用工具，或给出最终回答（done: true, answer: "..."）。` }]
   }
 
   if (!answer) {
-    const lastStep = steps.slice(-1)[0]
-    answer = lastStep?.observation ? `已为您完成操作：\n\n${lastStep.observation}` : '达到了最大步骤数，已停止。'
+    try {
+      const directChatPrompt: LLMMessage[] = [
+        { role: 'system', content: '你是 Academic Lens 的高级学术智能体。请结合工具返回结果，给出清晰完整的最终回答。' },
+        ...messages
+      ]
+      const directRes = await agentComplete(directChatPrompt, { temperature: 0.3, maxTokens: 1600 }).promise
+      answer = directRes.trim()
+    } catch {
+      const lastStep = steps.slice(-1)[0]
+      answer = lastStep?.observation ? `已为您完成操作：\n\n${lastStep.observation}` : '达到了最大步骤数，已停止。'
+    }
   }
   return { answer, steps }
 }
 
-/* ---------------- 确定性规则（快速单工具路径） ---------------- */
+/* ---------------- 确定性规则（仅限明确的前缀命令与极简单一指令） ---------------- */
 
 /**
- * 只做规则解析（不做 LLM 兜底），返回是否命中单个工具。
- * 供 send 走"快速命令"路径，减少一次 LLM 往返。
- * 优先级：学习增强（出题/公式/润色）> 生词本/查词 > 文档/周报 > 导航/个性化。
+ * 确定性规则解析：
+ * 【重要原则】：只拦截非常明确的命令前缀（如以 / 开头）或极短无歧义单指令。
+ * 任何包含疑问词、学术对比、长文本、连词或复合意图的输入，一律返回 null，交由 LLM + ReAct 智能处理！
  */
 export function resolveByRules(text: string): { tool: ToolId; params: Record<string, string> } | null {
   const trimmed = text.trim()
+  if (!trimmed) return null
 
-  // 复合/多步骤任务（含多动词或动作连接词）不走单规则快速通道，放行给 runReAct 多步自主规划
-  const COMPLEX_PATTERNS = [
-    /(?:先|首先).*?(?:然后|再|接着|最后)/i,
-    /(?:不仅|不仅要|既要).*?(?:还要|而且|也要)/i,
-    /(?:并且|而且|同时|并结合|并给出|并生成|并编写|并出题|并帮我)/i,
-    /(?:搜索|查找|检索).*?(?:并|然后|接着).*?(?:复现|总结|出题|分析|写代码|评审)/i
-  ]
-  if (COMPLEX_PATTERNS.some((p) => p.test(trimmed))) {
+  // 1. 凡是问句、对比、或者带连词/多动词的长句，坚决不走单规则拦截
+  const NATURAL_CHAT_RE = /(?:什么|为什么|怎么|如何|哪|区别|对比|分析一下|评析|是否|吗|？|\?|先.*?然后|不仅.*?而且|并且|同时|并为|并帮|并生成|并出题)/i
+  if (trimmed.length > 25 || NATURAL_CHAT_RE.test(trimmed)) {
     return null
   }
 
-  const rules: { re: RegExp; fn: (m: RegExpMatchArray, text: string) => { tool: ToolId; params: Record<string, string> } | null }[] = [
-    // —— 顶刊审稿人评审与算法代码骨架 ——
-    {
-      re: /(?:审稿|评审|同行评审|peer review|批判性评估|创新性评估|局限性分析)/i,
-      fn: () => ({ tool: 'paper_review', params: {} })
-    },
-    {
-      re: /(?:复现|代码骨架|算法实现|pytorch代码|python实现)/i,
-      fn: () => ({ tool: 'code_generate', params: {} })
-    },
-    // —— HuggingFace 检索与 BibTeX 引用 ——
-    {
-      re: /(?:huggingface|hf|模型权重|开源权重)/i,
-      fn: (_m, t) => ({ tool: 'huggingface_search', params: { query: t.replace(/^(请|帮我|在|用|搜|查|找|搜索|检索|huggingface|hf|模型|权重|一下|关于|相关的|内容)+/i, '').trim() } })
-    },
-    {
-      re: /(?:bibtex|引用格式|apa|gbt7714|ieee引用|生成引用)/i,
-      fn: (_m, t) => ({ tool: 'bibtex_lookup', params: { query: t } })
-    },
-    // —— 英语高阶：学术句型库、长难句、同义词、雅思托福 ——
-    {
-      re: /(?:句型|学术句型|phrasebank|写作模板|引言句型|方法句型)/i,
-      fn: (_m, t) => ({ tool: 'phrasebank_query', params: { query: t.replace(/^(请|帮我|查|找|搜索|句型|phrasebank|学术句型|一下)+/i, '').trim() } })
-    },
-    {
-      re: /(?:长难句|语法拆解|解剖句子|主谓宾|从句分析)/i,
-      fn: (_m, t) => ({ tool: 'grammar_analyze', params: { sentence: t.replace(/^(请|帮我|拆解|分析|解剖|长难句|语法|句子)+[:：\s]*/i, '').trim() } })
-    },
-    {
-      re: /(?:同义词|词汇辨析|辨析|区别|语感差异|collocation)/i,
-      fn: (_m, t) => ({ tool: 'synonym_nuance', params: { words: t.replace(/^(请|帮我|辨析|分析|区别|同义词)+[:：\s]*/i, '').trim() } })
-    },
-    {
-      re: /(?:雅思|托福|作文批改|大作文|小作文|task\s*1|task\s*2|写作打分)/i,
-      fn: (_m, t) => ({ tool: 'ielts_toefl_evaluate', params: { essay: t } })
-    },
-    // —— 联网 GitHub 仓库与开源实现检索（优先于论文检索，避免“搜索论文的 GitHub 开源实现”被论文拦截） ——
-    {
-      re: /(?:github|开源代码|开源实现|代码仓库|repo)/i,
-      fn: (_m, t) => ({ tool: 'github_search', params: { query: t.replace(/^(请|帮我|在|用|搜|查|找|搜索|检索|github|代码|仓库|开源|实现|一下|关于|相关的|内容)+/i, '').trim() } })
-    },
-    // —— 联网学术搜索与 arXiv 论文检索 ——
-    {
-      re: /(?:搜索|查找|检索|找).*?(?:论文|文献|arxiv|最新研究|顶刊)/i,
-      fn: (_m, t) => ({ tool: 'academic_search', params: { query: t.replace(/^(请|帮我|在|用|搜|查|找|搜索|检索|论文|文献|arxiv|一下|关于|相关的|内容)+/i, '').trim() } })
-    },
-    // —— 学术项目制管理 ——
-    {
-      re: /(?:有哪些|看|查看|列出|显示).*?(?:学术项目|项目列表|研究项目)/i,
-      fn: () => ({ tool: 'project_list', params: {} })
-    },
-    {
-      re: /(?:新建|创建|建立|开个).*?(?:学术项目|项目)/i,
-      fn: (_m, t) => ({ tool: 'project_create', params: { title: t.replace(/^(请|帮我|新建|创建|建立|学术项目|项目|名称|为|叫|主题)+/i, '').trim() } })
-    },
-    {
-      re: /(?:归档|加入|存入|放到).*?(?:项目)/i,
-      fn: (_m, t) => ({ tool: 'project_add_doc', params: { project: t } })
-    },
-    {
-      re: /(?:项目|全景|跨文献).*?(?:综述|对比|总结|汇总)/i,
-      fn: () => ({ tool: 'project_summary', params: {} })
-    },
-    // —— 多智能体协作：研读全套包 ——
-    {
-      re: /(?:研读|学习|阅读).*(?:全套包|全套|大礼包|套餐)|(?:一键|生成|来个|做个).*(?:研读|精读|全面分析|学习包)/i,
-      fn: () => ({ tool: 'pipeline_study_pack', params: {} })
-    },
-    // —— 出题与测验批改（导师专精）—— 优先于文档总结
-    {
-      re: /(?:批改|判卷|打分|交卷|我的答案|答卷)|(?:第\s*[1-3一二三]\s*[题\.]|[1-3]\s*[\.\:：、]\s*[A-Da-d])/i,
-      fn: (_m, t) => ({ tool: 'quiz_grade', params: { answers: t } })
-    },
-    {
-      re: /(?:基于|根据|针对)?.*?(?:考考我|随堂测验|自测题|出\s*\d*\s*道.*题|出题|测验|自测|理解题|练习题)/i,
-      fn: (_m, t) => ({ tool: 'quiz_generate', params: { context: t } })
-    },
-    // —— 学习增强（公式 / 润色） ——
-    { re: /\$([^$]+)\$/i, fn: (m) => ({ tool: 'math_explain', params: { latex: m[1].trim() } }) },
-    { re: /(?:讲解|解释|拆解|讲一讲|讲下|分析|推导)\s*(?:这个|那个|一下|的)?\s*(?:数学)?公式\s*[:：]?\s*(.+)/i, fn: (m) => ({ tool: 'math_explain', params: { latex: m[1].trim().slice(0, 400) } }) },
-    { re: /\\(?:frac|sum|int|mathbb|mathcal|sqrt|alpha|beta|gamma|sigma|lambda|nabla|partial)\b/i, fn: (_m, t) => ({ tool: 'math_explain', params: { latex: t } }) },
-    {
-      re: /润色\s*[:：]?\s*(.*)/i,
-      fn: (_m, t) => {
-        const clean = t
-          .replace(/^(请|帮我|给|把|一下|这段|下面的|这个|那个|的|英文|文本|句子|段落|论文|润色|改写|精修|润一润|[:：\s])+/i, '')
-          .trim()
-        return { tool: 'polish_run', params: { text: clean.slice(0, 2000) } }
-      }
-    },
-    // —— 导航 ——
-    { re: /(跳转|打开|去|进入|看).*(生词本)/i, fn: () => ({ tool: 'navigate', params: { view: 'wordbook' } }) },
-    { re: /(跳转|打开|去|进入).*(闪卡|抽词)/i, fn: () => ({ tool: 'navigate', params: { view: 'flashcard' } }) },
-    { re: /(跳转|打开|去|进入|看).*(统计|数据|周报)/i, fn: () => ({ tool: 'navigate', params: { view: 'stats' } }) },
-    { re: /(跳转|打开|去|进入).*(设置)/i, fn: () => ({ tool: 'navigate', params: { view: 'settings' } }) },
-    { re: /(跳转|打开|去|进入).*(润色)/i, fn: () => ({ tool: 'navigate', params: { view: 'polish' } }) },
-    // —— 生词本 ——
-    { re: /多少词|有几个词|生词.*概览|掌握情况|复习情况|盘点/i, fn: () => ({ tool: 'wordbook_summary', params: {} }) },
-    { re: /到期|该复习|要复习/i, fn: () => ({ tool: 'wordbook_due', params: {} }) },
-    {
-      re: /生词本.*(列表|看看|都有|前\s*\d+)/i,
-      fn: (_m, t) => {
-        const n = t.match(/前\s*(\d+)/)
-        const params: Record<string, string> = n ? { limit: n[1] } : {}
-        return { tool: 'wordbook_list', params }
-      }
-    },
-    { re: /把\s*([a-z][a-z'-]{1,45})\s*(?:保存|存入|记入|加入|记到).*生词|(?:加入|收藏|存进|记下)\s*([a-z][a-z'-]{1,45})/i, fn: (m) => ({ tool: 'wordbook_add', params: { word: m[1] || m[2] } }) },
-    // —— 查词（学习） ——
-    { re: /\b([a-z][a-z'-]{1,45})\b\s*(?:什么意思|怎么读|如何发音|啥意思|什么含义)/i, fn: (m) => ({ tool: 'word_lookup', params: { word: m[1] } }) },
-    { re: /查(?:询|一下|一查)?(?:单词|词)?\s*[:：]?\s*([a-z][a-z'-]{1,45})$/i, fn: (m) => ({ tool: 'word_lookup', params: { word: m[1] } }) },
-    { re: /(?:查|查一下)\s*([a-z][a-z'-]{1,45})\s*(?:的)?(?:意思|含义|翻译)/i, fn: (m) => ({ tool: 'word_lookup', params: { word: m[1] } }) },
-    // —— 分级 / 整理 ——
-    { re: /(?:给|把).*([a-z][a-z'-]{1,45}).*(分级|难度)/i, fn: (m) => ({ tool: 'grade_word', params: { word: m[1] } }) },
-    { re: /分级\s*[:：]?\s*([a-z][a-z'-]{1,45})/i, fn: (m) => ({ tool: 'grade_word', params: { word: m[1] } }) },
-    { re: /整理.*生词|生词.*(近反|专业|词根|主题)/i, fn: (_m, t) => ({ tool: 'organize_words', params: { mode: /近反/.test(t) ? 'synonym' : /专业/.test(t) ? 'academic' : /词根/.test(t) ? 'affix' : 'theme' } }) },
-    // —— 闪卡 ——
-    { re: /抽\s*(\d+)?\s*张?闪卡|抽词|出\s*(\d+)?\s*张?卡片/i, fn: (m) => ({ tool: 'flashcard_draw', params: { count: m[1] || '10' } }) },
-    // —— 查词方式 ——
-    { re: /(词典优先|用词典|uapis)/i, fn: () => ({ tool: 'set_lookup_source', params: { source: 'dict' } }) },
-    { re: /(只用|仅用|全部用).*ai.*查词|切换.*ai/i, fn: () => ({ tool: 'set_lookup_source', params: { source: 'llm' } }) },
-    // —— 个性化 ——
-    { re: /(我的.*(?:档案|目标)|查看.*目标|我的目标是什么)/i, fn: () => ({ tool: 'get_profile', params: {} }) },
-    { re: /(?:记下|设定|设为|更新)?(?:我的)?(?:学习目标|目标)\s*[:：]?\s*(.+)/i, fn: (m) => { const g = m[1].replace(/^(是|为|要|想|记成)\s*/, '').trim(); return { tool: 'set_goal', params: { goal: g || m[1].trim() } } } },
-    // —— 文档 / 周报 ——
-    { re: /(生成|来|写).*周报|周报/i, fn: () => ({ tool: 'report', params: {} }) },
-    {
-      re: /^(?!.*(出题|测验|做题|考考我|考题|练习)).*(总结.*文档|文档.*总结|摘要.*文档|文档.*摘要|概括.*文档|总结这篇|总结一下)/i,
-      fn: () => ({ tool: 'doc_summarize', params: {} })
-    },
-    { re: /(命中率|生词.*占比|陌生词)/i, fn: () => ({ tool: 'doc_unknown', params: {} }) },
-    { re: /当前.*文档|这个文档|看.*文档上下文/i, fn: () => ({ tool: 'doc_context', params: {} }) },
-    // —— 朗读 ——
-    { re: /(朗读|发音|读一下|念一下).*([a-z][a-z'-]{1,45})/i, fn: (m) => ({ tool: 'speak', params: { text: m[2] } }) },
-    // —— 历史检索：找之前某文档的摘要 / 译文 ——
-    {
-      re: /(之前|以前|历史).*?(摘要|译文|翻译)|(找|查找|帮我回忆|还原).*?(摘要|译文|翻译)/i,
-      fn: (_m, t) => {
-        const kw = t
-          .replace(/(前面|之前|以前|历史|记录|我|的|这篇|那篇|这个|那个|只要|看过|找|一下|帮我|请|讲|告诉|给|查|什么|内容|译文|摘要|翻译|回忆)(?:给我|一下|了)?/g, '')
-          .replace(/[《》"“”\s]/g, '')
-          .trim()
-        return { tool: 'history_search', params: { keyword: kw.slice(0, 20) } }
-      }
-    }
+  // 2. 明确的命令前缀（斜杠命令）
+  if (trimmed.startsWith('/')) {
+    if (/^\/(?:出题|测验|自测|quiz)/i.test(trimmed)) return { tool: 'quiz_generate', params: { context: trimmed.replace(/^\/(?:出题|测验|自测|quiz)\s*/i, '') } }
+    if (/^\/(?:批改|判卷|grade)/i.test(trimmed)) return { tool: 'quiz_grade', params: { answers: trimmed.replace(/^\/(?:批改|判卷|grade)\s*/i, '') } }
+    if (/^\/(?:审稿|评审|review)/i.test(trimmed)) return { tool: 'paper_review', params: {} }
+    if (/^\/(?:复现|代码|code)/i.test(trimmed)) return { tool: 'code_generate', params: {} }
+    if (/^\/(?:句型|phrasebank)/i.test(trimmed)) return { tool: 'phrasebank_query', params: { query: trimmed.replace(/^\/(?:句型|phrasebank)\s*/i, '') } }
+    if (/^\/(?:长难句|语法|grammar)/i.test(trimmed)) return { tool: 'grammar_analyze', params: { sentence: trimmed.replace(/^\/(?:长难句|语法|grammar)\s*/i, '') } }
+    if (/^\/(?:辨析|同义词|synonym)/i.test(trimmed)) return { tool: 'synonym_nuance', params: { words: trimmed.replace(/^\/(?:辨析|同义词|synonym)\s*/i, '') } }
+    if (/^\/(?:雅思|托福|作文|ielts|toefl)/i.test(trimmed)) return { tool: 'ielts_toefl_evaluate', params: { essay: trimmed.replace(/^\/(?:雅思|托福|作文|ielts|toefl)\s*/i, '') } }
+    if (/^\/(?:搜索|论文|arxiv)/i.test(trimmed)) return { tool: 'academic_search', params: { query: trimmed.replace(/^\/(?:搜索|论文|arxiv)\s*/i, '') } }
+    if (/^\/(?:github|repo)/i.test(trimmed)) return { tool: 'github_search', params: { query: trimmed.replace(/^\/(?:github|repo)\s*/i, '') } }
+    if (/^\/(?:hf|huggingface|模型)/i.test(trimmed)) return { tool: 'huggingface_search', params: { query: trimmed.replace(/^\/(?:hf|huggingface|模型)\s*/i, '') } }
+    if (/^\/(?:bibtex|引用)/i.test(trimmed)) return { tool: 'bibtex_lookup', params: { query: trimmed.replace(/^\/(?:bibtex|引用)\s*/i, '') } }
+    if (/^\/(?:总结|摘要|summary)/i.test(trimmed)) return { tool: 'doc_summarize', params: {} }
+    if (/^\/(?:研读全套包|全套|studypack)/i.test(trimmed)) return { tool: 'pipeline_study_pack', params: {} }
+    if (/^\/(?:润色|polish)/i.test(trimmed)) return { tool: 'polish_run', params: { text: trimmed.replace(/^\/(?:润色|polish)\s*/i, '') } }
+    if (/^\/(?:周报|report)/i.test(trimmed)) return { tool: 'report', params: {} }
+  }
+
+  // 3. 极短确定性单动作（纯英语单词查词/分级、界面跳转）
+  const singleRules: { re: RegExp; fn: (m: RegExpMatchArray) => { tool: ToolId; params: Record<string, string> } | null }[] = [
+    { re: /^查(?:询|单词|词)?\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i, fn: (m) => ({ tool: 'word_lookup', params: { word: m[1] } }) },
+    { re: /^分级\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i, fn: (m) => ({ tool: 'grade_word', params: { word: m[1] } }) },
+    { re: /^把\s*([a-zA-Z][a-zA-Z'-]{1,45})\s*(?:加入|存入|存进|记到)生词本$/i, fn: (m) => ({ tool: 'wordbook_add', params: { word: m[1] } }) },
+    { re: /^(?:打开|跳转到?|进入)(生词本|闪卡|设置|周报)$/i, fn: (m) => ({ tool: 'navigate', params: { view: m[1] === '生词本' ? 'wordbook' : m[1] === '闪卡' ? 'flashcard' : m[1] === '设置' ? 'settings' : 'stats' } }) },
+    { re: /^抽\s*(\d{1,2})\s*张?闪卡$/i, fn: (m) => ({ tool: 'flashcard_draw', params: { count: m[1] } }) },
+    { re: /^(?:生成)?周报$/i, fn: () => ({ tool: 'report', params: {} }) },
+    { re: /^研读全套包$/i, fn: () => ({ tool: 'pipeline_study_pack', params: {} }) }
   ]
-  for (const r of rules) {
+
+  for (const r of singleRules) {
     const m = trimmed.match(r.re)
     if (m) {
-      const r2 = r.fn(m, trimmed)
-      if (r2) return r2
+      const res = r.fn(m)
+      if (res) return res
     }
   }
+
   return null
 }

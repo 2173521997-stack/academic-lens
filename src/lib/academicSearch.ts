@@ -23,8 +23,20 @@ export interface RepoResult {
 
 /** 检索 arXiv 学术论文 */
 export async function searchArxivPapers(query: string, maxResults = 5): Promise<PaperResult[]> {
-  const cleanQ = encodeURIComponent(query.trim().slice(0, 100))
-  const url = `https://export.arxiv.org/api/query?search_query=all:${cleanQ}&start=0&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`
+  const tokens = query
+    .trim()
+    .replace(/[^\w\s-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+
+  if (!tokens.length) return []
+
+  const queryStr = tokens.length > 1
+    ? tokens.map((t) => `all:${encodeURIComponent(t)}`).join('+AND+')
+    : `all:${encodeURIComponent(tokens[0])}`
+
+  const url = `https://export.arxiv.org/api/query?search_query=${queryStr}&start=0&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`
 
   try {
     const resp = await fetch(url)
