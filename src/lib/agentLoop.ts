@@ -829,6 +829,23 @@ function buildToolDescs(): string {
   }).join('\n')
 }
 
+/** 动态提取当前学术文献与项目上下文 */
+function academicContextText(): string {
+  const { doc, summary, segments } = useFileStore.getState()
+  const { projects, activeProjectId } = useProjectStore.getState()
+  const activeProj = projects.find((p) => p.id === activeProjectId)
+
+  const docPart = doc
+    ? `【当前打开文献】：《${doc.name}》（共 ${segments.length} 个段落）${summary ? `\n【文献核心贡献/摘要】：${summary.slice(0, 350)}...` : ''}`
+    : '【当前打开文献】：暂未打开本地文献'
+
+  const projPart = activeProj
+    ? `【当前学术项目】：「${activeProj.title}」（已归档 ${activeProj.documents.length} 篇文献）`
+    : `【当前学术项目】：未选择（工作区共有 ${projects.length} 个学术项目）`
+
+  return `${docPart}\n${projPart}`
+}
+
 /** ReAct 系统提示 */
 const REACT_SYS = (): string =>
   '你是 Academic Lens 的高级学术智能体与多学科研究导师，用严谨、清晰、详尽的简体中文为用户提供学术研究、文献精读、算法复现与英语学习支持。\n' +
@@ -836,9 +853,10 @@ const REACT_SYS = (): string =>
   '【核心行为准则】\n' +
   '1. 智能问答与学术对比：当用户提出学术问题、追问或对比分析（如「这两篇文章有什么区别？」、「Transformer 和 Mamba 各有什么优劣」），若无需调用新工具，直接在 answer 中给出专业、结构化、深入透彻的解答！\n' +
   '2. 复合任务链式交付：若用户提出复合任务（如「搜索 Transformer 与 Mamba 论文，并做对比分析且出 3 道题」），请先调用 academic_search 检索论文，在拿到观察结果后，组织完整的对比分析并在 answer 中直接附上 3 道理解测验题！\n' +
-  '3. 原地完整交付：直接在回答中给出具体内容（如测验题目、文献摘要、对比表格、代码骨架、术语辨析）。绝对禁止回复「请去某某页面查看」、「已为您触发」等传话式废话！\n' +
-  '4. 杜绝死循环：如果上一步工具已经返回了有效数据，不要重复调用相同工具，立即组织最终回答（输出 {"done":true,"answer":"..."}）。\n\n' +
-  `当前上下文：\n${wordbookContextText()}\n查词方式：${lookupModeHint()}\n` +
+  '3. 上下文与代词感知：用户常使用「这篇论文」、「当前项目」、「刚才那段话」、「第一个公式」等自由口语表达，请依据下方【当前学术与学习上下文】与多轮历史准确认知其指代对象。\n' +
+  '4. 原地完整交付：直接在回答中给出具体内容（如测验题目、文献摘要、对比表格、代码骨架、术语辨析）。绝对禁止回复「请去某某页面查看」、「已为您触发」等传话式废话！\n' +
+  '5. 杜绝死循环：如果上一步工具已经返回了有效数据，不要重复调用相同工具，立即组织最终回答（输出 {"done":true,"answer":"..."}）。\n\n' +
+  `【当前学术与学习上下文】：\n${academicContextText()}\n${wordbookContextText()}\n查词方式：${lookupModeHint()}\n\n` +
   `可用工具：\n${buildToolDescs()}\n\n` +
   '工作方式（严格 JSON，一次输出一条）：\n' +
   '1) 需要执行工具时，输出：{"tool":"<工具id>","params":{...}}，必要参数必须填全。\n' +
