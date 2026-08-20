@@ -6,12 +6,13 @@ import {
   setAsyncReplySink, setAsyncLookup, agentContextBlock, type ToolId
 } from '../lib/agentTools'
 import { runReAct, resolveByRules, runTool } from '../lib/agentLoop'
+import { detectBestSubAgent, type SubAgentId } from '../lib/subAgents'
 import { decidePendingInput } from '../lib/confirm'
 import { useSettingsStore } from './settingsStore'
 import { useProfileStore } from './profileStore'
 import { useWordbookStore } from './wordbookStore'
-import { getFileContextForChat } from './fileStore'
-import { newId } from '../lib/parse'
+import { useFileStore, getFileContextForChat } from './fileStore'
+import { parseAnyFile, newId } from '../lib/parse'
 
 /** 会话持久化的最大保留条数（多轮上下文：最近 N 条作为历史注入） */
 const SESSION_MAX = 60
@@ -23,6 +24,11 @@ export interface AgentMessage {
   content: string
   /** 工具执行标签，如「工具：学情周报」 */
   label?: string
+  /** 响应专家子智能体标识 */
+  subAgentId?: SubAgentId
+  subAgentName?: string
+  subAgentBadge?: string
+  subAgentColor?: string
   /** 异步工具执行的来源词（如查词） */
   topic?: string
   /** 文档段落引用（@N），如「段落 3」 */
@@ -54,6 +60,8 @@ interface AgentState {
   appendInput: (text: string) => void
   /** 对挂起的破坏性操作给出答复：确认执行 / 取消 */
   answerConfirm: (affirm: boolean, userText?: string) => void
+  /** 用户在智能体中直接上传文档：就地解析并呈现意图交互 */
+  handleUploadDocument: (fileData: ArrayBuffer | Uint8Array, fileName: string, filePath?: string) => Promise<void>
 }
 
 let history: LLMMessage[] = []
@@ -64,13 +72,21 @@ export const FOLLOW_UPS: Partial<Record<ToolId, string[]>> = {
   grade_word: ['抽 10 张闪卡复习', '看看生词本概览'],
   organize_words: ['抽 10 张闪卡复习', '出 3 道自测题'],
   flashcard_draw: ['把答错的词重抽一遍', '生成本组练习'],
-  doc_summarize: ['翻译当前文档', '基于摘要出 3 道理解题'],
+  doc_summarize: ['基于这篇文档出 3 道测验题', '分析文档生词与难度', '将该文献归档到学术项目'],
   history_search: ['把找到的译文导出保存'],
   wordbook_add: ['看看生词本概览', '给这词出 3 道题'],
   report: ['导出生词命中列表', '看看生词本概览'],
-  quiz_generate: ['批改我的答案', '去阅读页做完整测验'],
+  quiz_generate: ['批改我的答案', '再换一批测验题', '去来做学术工作台精读'],
+  quiz_grade: ['把错题中的生词存入生词本', '再换一批测验题', '回到文献阅读'],
+  pipeline_study_pack: ['直接回复答案让我批改', '把核心术语一键加入生词本', '将该文献归档到学术项目'],
+  academic_search: ['搜索该论文的 GitHub 开源实现', '总结搜索结果中的第 1 篇', '为该主题新建学术项目'],
+  github_search: ['搜索相关的学术论文', '在浏览器中打开仓库链接'],
+  project_list: ['新建一个学术项目', '生成当前项目的跨文献全景综述'],
+  project_create: ['将当前文献归档到该项目', '为该项目搜索 arXiv 论文'],
+  project_add_doc: ['生成该项目的跨文献全景综述', '去来做学术工作台精读'],
+  project_summary: ['基于综述命制 3 道测验题', '去来做学术工作台查看'],
   math_explain: ['讲一讲其中每个符号的含义', '再通俗地解释一遍'],
-  polish_run: ['用精炼语气再润一遍', '去润色页继续编辑']
+  polish_run: ['用精炼语气再润一遍', '去来做学术工作台继续编辑']
 }
 
 /** 需要注入生词本详情的工具（特化注水） */
@@ -382,13 +398,96 @@ export const useAgentStore = create<AgentState>((set, get) => {
         const out = await runTool(toolId, params)
         const text = out.text || '（已完成）'
         patchMessage(msgId, { content: text, label, followUps: FOLLOW_UPS[toolId] })
-        // 调用 GLM 用自然语言组织一句话结果
+        
+        // 顶尖智能体设计（In-situ Delivery）：对于内容型工具，直接完整交付真实结果，避免小模型二次概括导致信息丢失
+        const RICH_TOOLS: ReadonlySet<ToolId> = new Set([
+          'quiz_generate',
+          'quiz_grade',
+          'pipeline_study_pack',
+          'academic_search',
+          'github_search',
+          'project_list',
+          'project_create',
+          'project_add_doc',
+          'project_summary',
+          'doc_summarize',
+          'math_explain',
+          'polish_run',
+          'history_search',
+          'report',
+          'word_lookup'
+        ])
+        if (RICH_TOOLS.has(toolId)) {
+          finalizeAssistant(msgId, text)
+          return
+        }
+
+        // 轻量控制型工具（如加词/改设置/导航等）调用 GLM 用自然语言组织一句话结果
         const prompt = buildPrompt(text, label, toolId)
         streamFinalAssistant(prompt, msgId, label, text)
       } catch (err) {
         finishError(msgId, label, err instanceof Error ? err.message : String(err))
       }
     })()
+  }
+
+  /** 文档拖入/上传：智能体就地解析并呈现意图交互，零跳转闭环 */
+  const handleUploadDocument = async (fileData: ArrayBuffer | Uint8Array, fileName: string, filePath?: string): Promise<void> => {
+    try {
+      const raw = fileData instanceof Uint8Array ? fileData : new Uint8Array(fileData)
+      const segs = await parseAnyFile(fileName, raw)
+      if (!segs.length) {
+        throw new Error('未能从文档中解析出文字段落')
+      }
+      useFileStore.getState().setDoc({ name: fileName, size: raw.byteLength, path: filePath, rawBuffer: raw }, segs)
+
+      const userMsgId = newId()
+      const assistantMsgId = newId()
+      const preview = segs.slice(0, 2).map((s) => s.text.slice(0, 100)).join(' ')
+
+      const guideText =
+        `### 📄 文献《${fileName}》解析成功\n\n` +
+        `- **文档规模**：共 ${segs.length} 个段落\n` +
+        `- **内容预览**：*${preview}…*\n\n` +
+        `---\n` +
+        `### 💡 请问您希望如何处理这篇文献？\n` +
+        `您可直接在下方回复您的需求，或点击以下方案：\n` +
+        `1. 📖 **[总结这篇文献]**：3–5 句提炼核心贡献与结构大纲\n` +
+        `2. 📚 **[提取核心生词并分级]**：标注 CEFR 难度与学术重点词\n` +
+        `3. 🎓 **[基于该文献出 3 道题]**：随堂自测检验理解\n` +
+        `4. 🔬 **[生成学术研读全套包]**：多智能体团队一键生成研读全资料\n` +
+        `5. 📁 **[将文献归档到学术项目]**：加入项目制工作台进行系统化研读`
+
+      const followUps = [
+        '生成这篇文献的学术研读全套包',
+        '总结这篇文献',
+        '基于该文献出 3 道题',
+        '将该文献归档到学术项目'
+      ]
+
+      pushMessages([
+        ...get().messages,
+        { id: userMsgId, role: 'user', content: `📄 上传并载入了文献《${fileName}》` },
+        {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: guideText,
+          followUps,
+          subAgentName: '文献研读专家',
+          subAgentBadge: '研读',
+          subAgentColor: '#3b82f6'
+        }
+      ])
+      history.push({ role: 'assistant', content: guideText })
+      saveSession(get().messages)
+    } catch (err) {
+      const errText = `文献上传解析失败：${err instanceof Error ? err.message : String(err)}`
+      pushMessages([
+        ...get().messages,
+        { id: newId(), role: 'user', content: `上传文献《${fileName}》` },
+        { id: newId(), role: 'assistant', content: errText, error: '解析失败' }
+      ])
+    }
   }
 
   /** 快路径：用 GLM 流式把"工具结果"组织成自然一句话 */
@@ -417,9 +516,19 @@ export const useAgentStore = create<AgentState>((set, get) => {
     }, { temperature: 0.3, maxTokens: 1400 })
   }
 
-  /** ReAct：直接把已生成的回答写入气泡并落历史 */
+  /** ReAct / 原地交付：直接把已生成的回答写入气泡并落历史 */
   const finalizeAssistant = (msgId: string, content: string): void => {
-    pushMessages(get().messages.map((m) => (m.id === msgId ? { ...m, content, role: 'assistant', label: undefined } : m)))
+    const subAgent = detectBestSubAgent(content)
+    pushMessages(get().messages.map((m) => (m.id === msgId ? {
+      ...m,
+      content,
+      role: 'assistant',
+      label: undefined,
+      subAgentId: subAgent.id,
+      subAgentName: subAgent.name,
+      subAgentBadge: subAgent.avatarBadge,
+      subAgentColor: subAgent.color
+    } : m)))
     history.push({ role: 'assistant', content })
     set({ streaming: false, input: '' })
     call = null
@@ -460,7 +569,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
     setInput: (v) => set({ input: v }),
     appendInput: (refText) => set((s) => ({ input: s.input ? `${s.input} ${refText}` : refText })),
-    answerConfirm
+    answerConfirm,
+    handleUploadDocument
   }
 })
 

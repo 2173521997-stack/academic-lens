@@ -1,4 +1,4 @@
-import { PanelTopClose, ArrowLeft, BookOpen, History, Settings, Layers, Quote, BarChart3, Bot, Feather, Home } from 'lucide-react'
+import { PanelTopClose, Settings, Bot, GraduationCap, Microscope } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import { useWindowStore } from '../stores/windowStore'
 
@@ -9,121 +9,83 @@ export default function TitleBar(): React.JSX.Element {
   const go = useAppStore((s) => s.go)
   const setMode = useWindowStore((s) => s.setMode)
 
-  const iconBtn =
-    'flex h-7 items-center justify-center gap-1 rounded-full px-2.5 text-[12px] font-medium text-ink-2 transition hover:bg-black/[0.06] dark:hover:bg-white/[0.1]'
+  const navTab = (targetView: 'research' | 'english' | 'agent', label: string, icon: React.JSX.Element) => {
+    const active = view === targetView
+    return (
+      <button
+        className={`flex h-8 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium transition ${
+          active
+            ? 'bg-accent text-white shadow-xs'
+            : 'text-ink-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] hover:text-ink-1'
+        }`}
+        onClick={() => go(targetView)}
+        title={label}
+      >
+        {icon}
+        <span>{label}</span>
+      </button>
+    )
+  }
 
   return (
     <header
-      className="flex h-11 shrink-0 items-center justify-between border-b border-line"
+      className="flex h-12 shrink-0 items-center justify-between border-b border-line px-3 bg-panel/50 backdrop-blur-xl"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
-      <div className={`flex min-w-0 items-center gap-2 ${isMac ? 'pl-[84px]' : 'pl-4'}`}>
-        {view !== 'home' && (
-          <button
-            className="btn btn-ghost !p-1.5"
-            onClick={() => go('home')}
-            title="返回主页"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            <ArrowLeft size={15} />
-          </button>
-        )}
+      {/* 左侧：Logo 与平台标识 */}
+      <div className={`flex min-w-0 items-center gap-2.5 ${isMac ? 'pl-[76px]' : 'pl-2'}`}>
         <button
-          onClick={() => go('home')}
-          className="flex items-center gap-1.5 text-left text-[13px] font-semibold tracking-tight text-ink-1 hover:opacity-80 transition"
+          onClick={() => go('research')}
+          className="flex items-center gap-2 text-left text-[14px] font-bold tracking-tight text-ink-1 hover:opacity-85 transition"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          title="点击返回主页"
+          title="Academic Lens 学术透镜"
         >
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent text-white shadow-xs">
+            <Microscope size={14} />
+          </span>
           <span>Academic Lens</span>
         </button>
         {platform && (
-          <span className="chip shrink-0">学术透镜 · {platform === 'darwin' ? 'macOS' : 'Windows'}</span>
+          <span className="chip shrink-0 hidden sm:inline-flex text-[10px]">
+            {platform === 'darwin' ? 'macOS' : 'Windows'}
+          </span>
         )}
       </div>
+
+      {/* 中间：3 大顶级核心板块切换 */}
       <div
-        className="flex shrink-0 items-center gap-1 pr-3"
+        className="flex items-center gap-1 p-1 rounded-2xl bg-black/[0.04] dark:bg-white/[0.06] border border-line/50"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        {navTab('research', '来做学术', <Microscope size={14} />)}
+        {navTab('english', '来学英语', <GraduationCap size={14} />)}
+        {navTab('agent', '智能体', <Bot size={14} />)}
+      </div>
+
+      {/* 右侧：设置与辅助功能 */}
+      <div
+        className="flex shrink-0 items-center gap-1.5"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <button
-          className={`${iconBtn} ${view === 'home' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go('home')}
-          title="主页"
+          className={`flex h-8 w-8 items-center justify-center rounded-xl text-ink-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition ${
+            view === 'settings' ? 'bg-accent-soft text-accent' : ''
+          }`}
+          onClick={() => go('settings')}
+          title="系统设置"
         >
-          <Home size={13} />
-          <span className="hidden sm:inline">主页</span>
+          <Settings size={14} />
         </button>
-        <button
-          className={`${iconBtn} ${view === 'polish' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'polish' ? 'home' : 'polish')}
-          title="学术润色（IEEE/ACM/Nature 规范）"
-        >
-          <Feather size={13} />
-          <span className="hidden sm:inline">润色</span>
-        </button>
-        <button
-          className={`${iconBtn} ${view === 'agent' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'agent' ? 'home' : 'agent')}
-          title="智能体（GLM-4-flash）"
-        >
-          <Bot size={13} />
-          <span className="hidden sm:inline">智能体</span>
-        </button>
-        <button
-          className={`${iconBtn} ${view === 'wordbook' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'wordbook' ? 'home' : 'wordbook')}
-          title="生词本"
-        >
-          <BookOpen size={13} />
-          <span className="hidden sm:inline">生词本</span>
-        </button>
-        <button
-          className={`${iconBtn} ${view === 'flashcard' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'flashcard' ? 'home' : 'flashcard')}
-          title="闪卡抽词"
-        >
-          <Layers size={13} />
-          <span className="hidden sm:inline">闪卡</span>
-        </button>
-        <button
-          className={`${iconBtn} ${view === 'quotes' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'quotes' ? 'home' : 'quotes')}
-          title="美人美言"
-        >
-          <Quote size={13} />
-          <span className="hidden sm:inline">美言</span>
-        </button>
-        <button
-          className={`${iconBtn} ${view === 'stats' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'stats' ? 'home' : 'stats')}
-          title="学习统计"
-        >
-          <BarChart3 size={13} />
-          <span className="hidden sm:inline">统计</span>
-        </button>
-        <button
-          className={`${iconBtn} ${view === 'history' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'history' ? 'home' : 'history')}
-          title="历史记录"
-        >
-          <History size={13} />
-          <span className="hidden sm:inline">历史</span>
-        </button>
-        <button
-          className={`${iconBtn} ${view === 'settings' ? '!bg-accent-soft !text-accent' : ''}`}
-          onClick={() => go(view === 'settings' ? 'home' : 'settings')}
-          title="设置"
-        >
-          <Settings size={13} />
-          <span className="hidden sm:inline">设置</span>
-        </button>
+
         <span className="mx-1 h-4 w-px bg-line" />
+
         <button
-          className={iconBtn}
+          className="flex h-8 items-center gap-1 rounded-xl px-2.5 text-[11px] font-medium text-ink-3 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] hover:text-ink-1 transition"
           onClick={() => setMode('mini')}
-          title="缩回小窗（Ctrl/Cmd+Shift+M）"
+          title="缩回划词/选词小窗（Ctrl/Cmd+Shift+M）"
         >
           <PanelTopClose size={13} />
-          <span className="hidden sm:inline">小窗</span>
+          <span className="hidden md:inline">小窗模式</span>
         </button>
       </div>
     </header>

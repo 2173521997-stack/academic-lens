@@ -65,8 +65,28 @@ export type ToolId =
   | 'open_external'
   // 学习增强（远程新增能力）
   | 'quiz_generate'
+  | 'quiz_grade'
+  | 'pipeline_study_pack'
   | 'math_explain'
   | 'polish_run'
+  // 联网搜索与学术 RAG
+  | 'academic_search'
+  | 'github_search'
+  | 'huggingface_search'
+  | 'bibtex_lookup'
+  // 学术项目制管理
+  | 'project_list'
+  | 'project_create'
+  | 'project_add_doc'
+  | 'project_summary'
+  // 顶刊审稿与算法复现
+  | 'paper_review'
+  | 'code_generate'
+  // 英语高阶能力（句型库、长难句、同义词、雅思托福）
+  | 'phrasebank_query'
+  | 'grammar_analyze'
+  | 'synonym_nuance'
+  | 'ielts_toefl_evaluate'
 
 export interface AgentTool {
   id: ToolId
@@ -84,12 +104,28 @@ export const TOOLS: AgentTool[] = [
   { id: 'grade_word', category: '学习', name: '单词分级', desc: '为一个或几个单词标注难度档位（CEFR / 四六级 / 雅思 / 托福 / 专四专八）', sideEffect: false, maxParam: 240 },
   { id: 'organize_words', category: '学习', name: '整理生词', desc: '对生词本做智能整理（近反义 / 专业日常 / 词根词缀 / 主题）', sideEffect: false, maxParam: 30 },
   { id: 'flashcard_draw', category: '学习', name: '抽闪卡', desc: '从生词本抽取一组闪卡用于复习', sideEffect: true, maxParam: 10 },
-  { id: 'quiz_generate', category: '学习', name: '随堂测验', desc: '基于当前文档生成 3 道随堂自测题并逐题作答批改', sideEffect: false, maxParam: 40 },
+  { id: 'quiz_generate', category: '学习', name: '随堂测验', desc: '基于当前文档或摘要生成 3 道随堂自测题并就地展示，支持逐题作答批改', sideEffect: false, maxParam: 400 },
+  { id: 'quiz_grade', category: '学习', name: '答卷批改', desc: '智能批改学生的随堂自测答卷，给出得分、详细解析与薄弱术语建议', sideEffect: false, maxParam: 1000 },
+  { id: 'pipeline_study_pack', category: '学习', name: '研读全套包', desc: '多智能体协作：文献研读专家提取摘要 + 词汇专家分级术语 + 导师命制测验题', sideEffect: false, maxParam: 200 },
+  { id: 'academic_search', category: '学习', name: '学术搜索', desc: '联网搜索 arXiv 论文、学术期刊与研究进展，返回论文标题、作者、摘要与 PDF 链接', sideEffect: false, maxParam: 120 },
+  { id: 'github_search', category: '学习', name: 'GitHub搜索', desc: '搜索学术论文对应的开源代码实现、GitHub 仓库与 Star 数', sideEffect: false, maxParam: 120 },
+  { id: 'huggingface_search', category: '学习', name: 'HuggingFace搜索', desc: '检索 HuggingFace 开源大模型、预训练权重与模型卡片', sideEffect: false, maxParam: 120 },
+  { id: 'bibtex_lookup', category: '学习', name: 'BibTeX与引用', desc: '生成论文的标准 BibTeX、APA、IEEE、GB/T 7714 引用格式', sideEffect: false, maxParam: 200 },
+  { id: 'paper_review', category: '学习', name: '审稿人评审', desc: '以 Senior Area Chair 视角进行创新性、严谨度、局限性批判评审与打分', sideEffect: false, maxParam: 300 },
+  { id: 'code_generate', category: '学习', name: '算法代码骨架', desc: '提取论文核心算法流程，生成 PyTorch/Python 模块化实现代码骨架与复现指南', sideEffect: false, maxParam: 300 },
+  { id: 'phrasebank_query', category: '学习', name: '学术句型库', desc: '检索曼彻斯特学术写作句型库（引言、方法、结果、讨论、局限性）', sideEffect: false, maxParam: 120 },
+  { id: 'grammar_analyze', category: '学习', name: '长难句语法拆解', desc: '深度解剖学术长难句主谓宾骨架、修饰从句嵌套与地道顺畅翻译', sideEffect: false, maxParam: 600 },
+  { id: 'synonym_nuance', category: '学习', name: '同义词学术辨析', desc: '辨析相近学术词汇的语感微细差异、顶刊高频搭配与误用警示', sideEffect: false, maxParam: 120 },
+  { id: 'ielts_toefl_evaluate', category: '学习', name: '雅思托福批改', desc: '按 TR/CC/LR/GRA 官方四维度批改英文学术作文并给出考官范文', sideEffect: false, maxParam: 2500 },
   { id: 'math_explain', category: '学习', name: '公式讲解', desc: '拆解论文中的数学公式：大白话、直觉、符号表、推导步骤', sideEffect: false, maxParam: 240 },
   { id: 'polish_run', category: '学习', name: '学术润色', desc: '润色一段英文学术文本（严格/精炼/委婉三种语气），返回润色后全文与修改要点', sideEffect: false, maxParam: 2000 },
   // 项目工具类
+  { id: 'project_list', category: '项目', name: '学术项目列表', desc: '列出当前所有学术项目、预设主题及各自下属文献列表', sideEffect: false },
+  { id: 'project_create', category: '项目', name: '新建学术项目', desc: '按指定名称与研究预设主题新建学术项目', sideEffect: true, maxParam: 300 },
+  { id: 'project_add_doc', category: '项目', name: '文献归档入项目', desc: '将当前阅读或指定文献加入特定学术项目', sideEffect: true, maxParam: 300 },
+  { id: 'project_summary', category: '项目', name: '项目全景综述', desc: '跨文献学术综述：综合当前项目下所有文献生成研究全景与关联对比', sideEffect: false, maxParam: 300 },
   { id: 'doc_context', category: '项目', name: '文档上下文', desc: '返回当前是否打开文档及内容概况（分段数、开头若干段）', sideEffect: false },
-  { id: 'doc_summarize', category: '项目', name: '文档摘要', desc: '触发当前文档的 AI 摘要生成', sideEffect: true },
+  { id: 'doc_summarize', category: '项目', name: '文档摘要', desc: '生成并返回当前文档的核心摘要、大纲结构与关键术语', sideEffect: false, maxParam: 200 },
   { id: 'doc_unknown', category: '项目', name: '文档生词命中', desc: '统计当前文档的生词命中率，指出陌生词', sideEffect: false },
   { id: 'doc_export', category: '项目', name: '导出译文', desc: '把当前文档的译文导出保存为文件', sideEffect: true },
   // 审查核实类
@@ -239,6 +275,15 @@ export function executeTool(id: ToolId, params: Record<string, string>): ToolOut
       return { text: `已为你抽 ${count} 张闪卡，请到「闪卡」页查看。` }
     }
 
+    case 'quiz_grade': {
+      const ans = (params.answers ?? params.text ?? '').trim()
+      return { text: `收到答卷：${ans}，正在由学术导师为您批改…`, asyncStarted: true }
+    }
+
+    case 'pipeline_study_pack': {
+      return { text: '正在调动文献研读专家、词汇专家与自测导师为您生成研读全套包…', asyncStarted: true }
+    }
+
     /* ---------- 项目工具类 ---------- */
     case 'doc_context': {
       const { segments, doc } = useFileStore.getState()
@@ -248,10 +293,13 @@ export function executeTool(id: ToolId, params: Record<string, string>): ToolOut
     }
 
     case 'doc_summarize': {
-      const { segments } = useFileStore.getState()
-      if (!segments.length) return { text: '当前没有文档，无法生成摘要。' }
+      const { segments, summary } = useFileStore.getState()
+      if (!segments.length) return { text: '当前没有打开任何文档，无法生成摘要。请先在阅读页打开或拖入文档。' }
+      if (summary && summary.trim().length > 30) {
+        return { text: `【当前文档摘要】\n${summary}` }
+      }
       useFileStore.getState().summarize()
-      return { text: '已触发文档摘要生成，请到「文档 → 总结」页查看。' }
+      return { text: '已基于当前文档内容开始分析并生成摘要。' }
     }
 
     case 'doc_unknown': {
@@ -438,9 +486,34 @@ const RULE_MAP: Rule[] = [
   // 分级
   { re: /(分级|难度).*(cet|四级|六级|专四|专八|雅思|托福|cefr)/i, rule: () => [call('grade_word')] },
   { re: /整理.*生词|生词.*整理/i, rule: (_m, t) => [call('organize_words', { mode: themeOf(t) || 'synonym' })] },
+  // 顶刊审稿人评审与算法复现
+  { re: /(?:审稿|评审|同行评审|peer review|批判性评估|创新性评估|局限性分析)/i, rule: () => [call('paper_review')] },
+  { re: /(?:复现|代码骨架|算法实现|pytorch代码|python实现)/i, rule: () => [call('code_generate')] },
+  // HuggingFace 检索与 BibTeX 引用
+  { re: /(?:huggingface|hf|模型权重|开源权重)/i, rule: (_m, t) => [call('huggingface_search', { query: t.replace(/^(请|帮我|在|用|搜|查|找|搜索|检索|huggingface|hf|模型|权重|一下|关于|相关的|内容)+/i, '').trim() })] },
+  { re: /(?:bibtex|引用格式|apa|gbt7714|ieee引用|生成引用)/i, rule: () => [call('bibtex_lookup')] },
+  // 英语高阶：学术句型库、长难句、同义词、雅思托福
+  { re: /(?:句型|学术句型|phrasebank|写作模板|引言句型|方法句型)/i, rule: (_m, t) => [call('phrasebank_query', { query: t.replace(/^(请|帮我|查|找|搜索|句型|phrasebank|学术句型|一下)+/i, '').trim() })] },
+  { re: /(?:长难句|语法拆解|解剖句子|主谓宾|从句分析)/i, rule: (_m, t) => [call('grammar_analyze', { sentence: t.replace(/^(请|帮我|拆解|分析|解剖|长难句|语法|句子)+[:：\s]*/i, '').trim() })] },
+  { re: /(?:同义词|词汇辨析|辨析|区别|语感差异|collocation)/i, rule: (_m, t) => [call('synonym_nuance', { words: t.replace(/^(请|帮我|辨析|分析|区别|同义词)+[:：\s]*/i, '').trim() })] },
+  { re: /(?:雅思|托福|作文批改|大作文|小作文|task\s*1|task\s*2|写作打分)/i, rule: (_m, t) => [call('ielts_toefl_evaluate', { essay: t })] },
+  // 联网 GitHub 仓库与开源实现检索（优先于论文规则，避免“搜索论文的 GitHub 开源实现”被论文拦截）
+  { re: /(?:github|开源代码|开源实现|代码仓库|repo)/i, rule: (_m, t) => [call('github_search', { query: t.replace(/^(请|帮我|在|用|搜|查|找|搜索|检索|github|代码|仓库|开源|实现|一下|关于|相关的|内容)+/i, '').trim() })] },
+  // 联网学术搜索与 arXiv 论文检索
+  { re: /(?:搜索|查找|检索|找).*?(?:论文|文献|arxiv|最新研究|顶刊)/i, rule: (_m, t) => [call('academic_search', { query: t.replace(/^(请|帮我|在|用|搜|查|找|搜索|检索|论文|文献|arxiv|一下|关于|相关的|内容)+/i, '').trim() })] },
+  // 学术项目制管理
+  { re: /(?:有哪些|看|查看|列出|显示).*?(?:学术项目|项目列表|研究项目)/i, rule: () => [call('project_list')] },
+  { re: /(?:新建|创建|建立|开个).*?(?:学术项目|项目)/i, rule: (_m, t) => [call('project_create', { title: t.replace(/^(请|帮我|新建|创建|建立|学术项目|项目|名称|为|叫|主题)+/i, '').trim() })] },
+  { re: /(?:归档|加入|存入|放到).*?(?:项目)/i, rule: (_m, t) => [call('project_add_doc', { project: t })] },
+  { re: /(?:项目|全景|跨文献).*?(?:综述|对比|总结|汇总)/i, rule: () => [call('project_summary')] },
+  // 多智能体协作流水线：研读全套包
+  { re: /(?:研读|学习|阅读).*(?:全套包|全套|大礼包|套餐)|(?:一键|生成|来个|做个).*(?:研读|精读|全面分析|学习包)/i, rule: () => [call('pipeline_study_pack')] },
+  // 出题与测验批改（导师专精）—— 优先于文档总结
+  { re: /(?:批改|判卷|打分|交卷|我的答案|答卷)|(?:第\s*[1-3一二三]\s*[题\.]|[1-3]\s*[\.\:：、]\s*[A-Da-d])/i, rule: (_m, t) => [call('quiz_grade', { answers: t })] },
+  { re: /(?:基于|根据|针对)?.*?(?:考考我|随堂测验|自测题|出\s*\d*\s*道.*题|出题|测验|自测|理解题|练习题)/i, rule: (_m, t) => [call('quiz_generate', { context: t })] },
   // 文档
   { re: /当前.*文档|这个文档|看.*文档上下文/i, rule: () => [call('doc_context')] },
-  { re: /(摘要|总结).*(文档|这篇)|总结一下/i, rule: () => [call('doc_summarize')] },
+  { re: /^(?!.*(出题|测验|做题|考考我|考题|练习|批改|全套|搜索|github|项目|理解题)).*(总结.*文档|文档.*总结|摘要.*文档|文档.*摘要|概括.*文档|总结这篇|总结一下)/i, rule: () => [call('doc_summarize')] },
   { re: /(命中率|生词.*占比|陌生词)/i, rule: () => [call('doc_unknown')] },
   { re: /导出.*(译文|翻译|文档)/i, rule: () => [call('doc_export')] },
   // 周报 / 核查
@@ -503,9 +576,11 @@ async function resolveViaLLM(text: string): Promise<ResolveResult> {
   const sys =
     '你是 Academic Lens 的意图路由器。把用户的一句话判断是否可交给内置工具执行。\n' +
     `可用工具：\n${toolList}\n` +
-    '规则：只能选择一个工具；需要参数时填 params（如 word_lookup 需要 word，set_goal 需要 goal）；' +
-    '查单个英文单词用 word_lookup；把一句英文翻译成中文属于重型任务、不路由工具，返回 {"tool":null}。' +
-    '若请求超出工具范围，返回 {"tool":null}。\n' +
+    '规则要点：\n' +
+    '1. 动作优先：用户要求出题、测验、做题、练习时（无论是否包含“基于摘要”、“根据文档”等状语），必须选择 quiz_generate；\n' +
+    '2. 用户要求总结、概括、提炼文档时，选择 doc_summarize；\n' +
+    '3. 查单个英文单词用 word_lookup；翻译长句属于重型任务不路由工具，返回 {"tool":null}；\n' +
+    '4. 若请求超出工具范围，返回 {"tool":null}。\n' +
     '必须严格输出 JSON：{"tool":"<工具id|null>","params":{"<参数名>":"<值>"}}，不要输出其他内容。'
   const call = agentComplete(
     [
@@ -558,13 +633,21 @@ function useAgentStorePush(word: string): void {
 /* ---------------- 智能体系统提示与上下文 ---------------- */
 
 export const AGENT_SYS =
-  '你是 Academic Lens 的智能助手。用户主要用它阅读英文文献、背单词、整理生词、复习与写周报。' +
-  '回答用简体中文，简明友好。你可以调用内置工具完成具体操作（查词、分级、整理、跳转、到期复习、生词概览、生词本列表、导出、摘要、周报、朗读、设目标、切换查词方式、开链接、历史检索、随堂测验、公式讲解、学术润色）。' +
-  '一个请求可能包含多个操作（例如「查词后存入生词本」）：先用工具查词拿到结果，再用生词本相关工具存词，最后用 1–2 句话总结。' +
-  '执行工具后，用 1–2 句话摘要说明做了什么、结果是什么。' +
-  '生词本按单词（不区分大小写）去重：同一单词不会重复添加，不要误导用户以为新增成功。如果某操作会改变归属或可能失败，如实说明。' +
-  '不能执行的操作（写代码、联网搜索、本工具外的系统操作）请如实说明做不到并给替代建议。不要编造未执行的操作。' +
-  '涉及不确定的翻译或生成内容时，尽量区分「事实」与「我的推断」，必要时提示可为其核实。'
+  '你是 Academic Lens 的全能学术与英语学习超级智能体（Omni-Controller）。' +
+  '你具备学术与英语学习双核大语言模型能力，熟练掌握学术论文检索（arXiv）、GitHub 论文开源实现检索、项目制学术文献管理、文档全生命周期掌控、生词本与闪卡记忆系统。\n\n' +
+  '【核心行为准则】\n' +
+  '1. 全能掌控与零跳转闭环（In-situ & Zero-leaving）：\n' +
+  '   - 用户无需打开或跳转「来做学术」和「来学英语」板块，即可在当前对话中完成所有功能；\n' +
+  '   - 所有分析结果、论文检索列表、文档摘要、自测题目、答卷批改、公式推导、项目综述直接在当前对话气泡中完整交付，严禁说「请去某页面查看」！\n' +
+  '2. 交互式引导与项目归档：\n' +
+  '   - 用户上传或提及文献时，主动提供核心摘要、术语分级、出题自测或研读全套包等选项；\n' +
+  '   - 原地完成处理后，才贴心询问用户是否需要将文献归档至「来做学术」的某个项目中；\n' +
+  '3. 联网搜索与学术 RAG：\n' +
+  '   - 支持通过 academic_search 检索 arXiv 最新学术论文；\n' +
+  '   - 支持通过 github_search 检索论文的官方/开源代码实现；\n' +
+  '4. 学术项目制研读：\n' +
+  '   - 理解用户学术项目的主题（Topic），支持跨文献全景综述（project_summary）、项目文献管理与对比研读；\n' +
+  '5. 诚实严谨，富有学术洞见：区分学术事实与推断，术语与公式讲解深入浅出。'
 
 export function buildAgentContext(): string {
   const c = getFileContextForChat()

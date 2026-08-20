@@ -6,17 +6,13 @@ import { useHistoryStore } from './stores/historyStore'
 import { useWindowStore } from './stores/windowStore'
 import { useFileStore } from './stores/fileStore'
 import { useProfileStore } from './stores/profileStore'
+import { useProjectStore } from './stores/projectStore'
 import { parseAnyFile } from './lib/parse'
 import { isSupported } from './lib/types'
 import TitleBar from './components/TitleBar'
-import HomeView from './components/HomeView'
-import PolishView from './components/PolishView'
+import ResearchView from './components/ResearchView'
+import EnglishView from './components/EnglishView'
 import AgentView from './components/AgentView'
-import WordbookView from './components/WordbookView'
-import FlashcardView from './components/FlashcardView'
-import QuoteView from './components/QuoteView'
-import StatsView from './components/StatsView'
-import HistoryView from './components/HistoryView'
 import SettingsView from './components/SettingsView'
 import MiniTitleBar from './components/MiniTitleBar'
 import QuickTranslate from './components/QuickTranslate'
@@ -40,16 +36,30 @@ function applyTheme(): void {
   }
 }
 
-/** macOS Dock 拖入 / Finder 打开：读取并解析文件，进入翻译 */
+/** macOS Dock 拖入 / Finder 打开：读取并解析文件，进入来做学术板块 */
 async function openDroppedFile(filePath: string): Promise<void> {
   const name = filePath.split(/[\\/]/).pop() ?? filePath
   if (!isSupported(name)) return
   try {
     const data = await window.bridge.readFile(filePath)
     const segs = await parseAnyFile(name, data)
-    useFileStore.getState().setDoc({ name, size: data.byteLength, rawBuffer: new Uint8Array(data), path: filePath }, segs)
+    const raw = new Uint8Array(data)
+    useFileStore.getState().setDoc({ name, size: data.byteLength, rawBuffer: raw, path: filePath }, segs)
+    
+    // 如果当前有激活的学术项目，自动加入该项目
+    const curProj = useProjectStore.getState().getActiveProject()
+    if (curProj) {
+      useProjectStore.getState().addDocToProject(curProj.id, {
+        name,
+        size: data.byteLength,
+        path: filePath,
+        rawBuffer: raw,
+        segments: segs
+      })
+    }
+
     useWindowStore.getState().setMode('full')
-    useAppStore.getState().go('home')
+    useAppStore.getState().go('research')
   } catch {
     /* 文件读取失败静默 */
   }
@@ -66,6 +76,7 @@ export default function App(): React.JSX.Element {
       await useWordbookStore.getState().load()
       await useHistoryStore.getState().load()
       await useProfileStore.getState().load()
+      await useProjectStore.getState().load()
       await useWindowStore.getState().init()
       const info = await window.bridge.appInfo()
       useAppStore.getState().setPlatform(info.platform, info.isMac)
@@ -110,14 +121,9 @@ export default function App(): React.JSX.Element {
       <TitleBar />
       <div className="relative flex min-h-0 flex-1">
         <main className="min-w-0 flex-1 overflow-hidden">
-          {view === 'home' && <HomeView />}
-          {view === 'polish' && <PolishView />}
+          {(view === 'research' || view === 'home' || view === 'polish') && <ResearchView />}
+          {(view === 'english' || view === 'wordbook' || view === 'flashcard' || view === 'quotes' || view === 'stats' || view === 'history') && <EnglishView />}
           {view === 'agent' && <AgentView />}
-          {view === 'wordbook' && <WordbookView />}
-          {view === 'flashcard' && <FlashcardView />}
-          {view === 'quotes' && <QuoteView />}
-          {view === 'stats' && <StatsView />}
-          {view === 'history' && <HistoryView />}
           {view === 'settings' && <SettingsView />}
         </main>
       </div>

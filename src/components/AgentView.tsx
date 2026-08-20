@@ -1,7 +1,8 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Bot, Send, Square, Trash2, Wrench, ShieldCheck, AlertTriangle,
-  BookOpen, FileText, BadgeCheck, User, Settings, Monitor, TerminalSquare, Plus, X, Paperclip
+  BookOpen, FileText, BadgeCheck, Settings, TerminalSquare, Plus, X, Paperclip,
+  Sparkles, Award
 } from 'lucide-react'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../lib/sanitize'
@@ -11,20 +12,20 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useFileStore } from '../stores/fileStore'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { toast } from '../stores/noticeStore'
-import { parseAnyFile, makeSegment } from '../lib/parse'
+import { makeSegment } from '../lib/parse'
 import { recognizeClipboardImage } from '../lib/ocr'
 import { TOOLS, type ToolId, type ToolCategory } from '../lib/agentTools'
 import { isDue } from '../lib/srs'
 import EmptyState from './EmptyState'
 
-/** 按 6 类工具组织的快捷入口，方便用户发现能力 */
+/** 按多智能体与核心场景组织的快捷入口 */
 const QUICK_PROMPTS: { icon: typeof Bot; label: string; prompt: string }[] = [
-  { icon: BookOpen, label: '查个单词', prompt: '查一下单词 resilience' },
+  { icon: Sparkles, label: '学术研读全套包', prompt: '生成这篇文献的学术研读全套包' },
+  { icon: Award, label: '随堂自测出题', prompt: '基于当前文档出 3 道理解题' },
+  { icon: BookOpen, label: '搜索 arXiv 论文', prompt: '搜索关于 LLM Multi-Agent 的最新论文' },
+  { icon: TerminalSquare, label: '搜索 GitHub 仓库', prompt: '搜索 vLLM 的 GitHub 仓库与开源实现' },
   { icon: FileText, label: '总结当前文档', prompt: '总结当前文档' },
-  { icon: BadgeCheck, label: '生成学情周报', prompt: '帮我生成学情周报' },
-  { icon: Settings, label: '生词本概览', prompt: '看看生词本怎么样' },
-  { icon: Monitor, label: '今天要复习的词', prompt: '今天有哪些词到期要复习？' },
-  { icon: User, label: '设置学习目标', prompt: '我的学习目标是想通过四级' }
+  { icon: BadgeCheck, label: '我的学术项目', prompt: '列出我的所有学术项目及文献' }
 ]
 
 /** 分类面板展示顺序与标题（固定，不随 TOOLS 定义漂移） */
@@ -32,6 +33,12 @@ const CATEGORY_ORDER: ToolCategory[] = ['学习', '项目', '审查核实', '个
 
 /** 每个工具点选后填入输入框的示例指令（可再编辑后回车执行） */
 const SKILL_EXAMPLES: Partial<Record<ToolId, string>> = {
+  academic_search: '搜索关于 Transformer 架构的最新 arXiv 论文',
+  github_search: '搜索 LangChain 或 AutoGen 的 GitHub 开源仓库',
+  project_list: '查看我的所有学术项目及文献',
+  project_create: '新建学术项目：多模态医学图像 主题：Multimodal Medical Imaging',
+  project_add_doc: '将当前文献加入项目',
+  project_summary: '生成当前学术项目的跨文献全景综述',
   word_lookup: '查一下单词 resilience',
   grade_word: '给单词 serendipity 分级，判断难度档次',
   organize_words: '整理生词本，按近义分组',
@@ -44,7 +51,7 @@ const SKILL_EXAMPLES: Partial<Record<ToolId, string>> = {
   fact_check: '核查这段话是否靠谱：……',
   set_goal: '设置学习目标：想通过六级',
   get_profile: '查看我的学习档案',
-  navigate: '跳转到闪卡页面',
+  navigate: '跳转到来做学术工作台',
   set_lookup_source: '切换为词典优先（uapis）查词',
   wordbook_add: '把单词 ubiquitous 加入生词本',
   wordbook_summary: '看看生词本的概览和掌握情况',
@@ -54,6 +61,8 @@ const SKILL_EXAMPLES: Partial<Record<ToolId, string>> = {
   open_external: '打开链接 https://example.com',
   history_search: '查找之前《独立宣言》的译文',
   quiz_generate: '考考我，根据这篇文档出 3 道题',
+  quiz_grade: '帮我批改答卷：1. A  2. Dropout  3. 降低过拟合',
+  pipeline_study_pack: '生成这篇文献的学术研读全套包',
   math_explain: '讲解这个公式：$E = mc^2$',
   polish_run: '润色这段英文：The results are very good...'
 }
@@ -78,7 +87,10 @@ const INSTANT_SKILLS: ReadonlySet<ToolId> = new Set<ToolId>([
   'wordbook_summary',
   'wordbook_due',
   'wordbook_list',
-  'quiz_generate'
+  'quiz_generate',
+  'pipeline_study_pack',
+  'project_list',
+  'project_summary'
 ])
 
 /** 错误边界：对话区渲染异常时给出兜底而非白屏（借鉴 1.md 的状态响应式避坑） */
@@ -154,6 +166,8 @@ function AgentViewInner(): React.JSX.Element {
       case 'doc_unknown':
       case 'doc_export':
       case 'quiz_generate':
+      case 'quiz_grade':
+      case 'pipeline_study_pack':
         return fileDoc ? { disabled: false } : { disabled: true, reason: '当前未打开文档' }
       case 'organize_words':
       case 'wordbook_summary':
@@ -168,7 +182,7 @@ function AgentViewInner(): React.JSX.Element {
     }
   }
 
-  /** 「#」上传：解析文档或 OCR 图片 → 载入 fileStore → 跳转原生翻译视图 */
+  /** 上传文献：智能体就地解析并呈现意图交互，零跳转闭环 */
   const handleUpload = async (): Promise<void> => {
     const IMG_EXT = /^(png|jpe?g|webp|bmp|gif)$/
     const DOC_EXT = /^(pdf|docx|txt|md|markdown)$/
@@ -193,16 +207,11 @@ function AgentViewInner(): React.JSX.Element {
             { name, size: data.byteLength },
             lines.map((l) => makeSegment('p', l))
           )
+          toast('success', `已识别图片《${name}》`, 'OCR 成功')
         } else {
-          const segs = await parseAnyFile(name, data)
-          if (!segs.length) {
-            toast('warning', '文档未解析到内容，请检查文件', name)
-            continue
-          }
-          useFileStore.getState().setDoc({ name, size: data.byteLength }, segs)
+          await useAgentStore.getState().handleUploadDocument(data, name, p)
+          toast('success', `已在智能体中解析《${name}》，请在对话中选择处理意图`, '文献已载入')
         }
-        useAppStore.getState().go('home')
-        toast('success', `已载入《${name}》；也可回到对话追问总结 / 翻译 / 生词`, '已上传')
         return
       } catch (err) {
         toast('danger', err instanceof Error ? err.message : String(err), name)
@@ -234,7 +243,7 @@ function AgentViewInner(): React.JSX.Element {
           </span>
           智能体
           <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-normal text-accent">
-            GLM-4-flash · 免费
+            Multi-Agent 协作网络
           </span>
           {!hasAgentApi && (
             <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-normal text-danger">未配置 Key</span>
@@ -242,8 +251,8 @@ function AgentViewInner(): React.JSX.Element {
           {fileDoc && <span className="chip max-w-[200px] truncate">{fileDoc.name}</span>}
         </h1>
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 text-[10px] text-ink-3" title="决策边界：仅白名单工具，参数受限">
-            <ShieldCheck size={11} className="text-ok" /> 工具受限
+          <span className="flex items-center gap-1 text-[10px] text-ink-3" title="4 大专精子智能体：研读 · 词汇 · 导师 · 润色">
+            <ShieldCheck size={11} className="text-ok" /> 4 专精子智能体
           </span>
           <button className="btn btn-ghost !p-1.5" onClick={clear} disabled={!messages.length} title="清空对话">
             <Trash2 size={13} />
@@ -257,8 +266,8 @@ function AgentViewInner(): React.JSX.Element {
             <>
               <EmptyState
                 icon={Bot}
-                title="你好，我可以用一句话帮你做事"
-                hint={`我能：查词分级、整理生词、总结文档、导出生词命中、生成周报与核查、设目标、跳转页面、切换查词、朗读、打开链接。\n若未配置，请先到「设置 → 智能体」填入 GLM-4-flash API Key。`}
+                title="学术透镜多智能体团队已就绪"
+                hint={`我们由「文献研读专家 × 词汇记忆专家 × 学术自测导师 × 论文润色顾问」组成。\n支持一键生成研读全套包、随堂自测与答卷批改、学术术语 CEFR 分级与 SRS 闪卡排程。`}
               />
               {!hasAgentApi && (
                 <div className="flex justify-center pt-1">
@@ -278,6 +287,21 @@ function AgentViewInner(): React.JSX.Element {
                       : 'card rounded-bl-sm'
                   }`}
                 >
+                  {m.role === 'assistant' && m.subAgentName && (
+                    <div className="mb-1.5 flex items-center gap-1">
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                        style={{
+                          backgroundColor: `${m.subAgentColor || '#3b82f6'}15`,
+                          color: m.subAgentColor || '#3b82f6',
+                          border: `1px solid ${m.subAgentColor || '#3b82f6'}30`
+                        }}
+                      >
+                        <Bot size={10} />
+                        {m.subAgentName} · {m.subAgentBadge}
+                      </span>
+                    </div>
+                  )}
                   {m.label && (
                     <span className="mb-1 flex items-center gap-1 text-[10px] text-ink-3">
                       <Wrench size={10} className={m.role === 'tool' ? 'text-accent' : ''} />

@@ -73,8 +73,13 @@ const SYS_QUIZ_GEN =
   '  ]\n' +
   '}'
 
-export async function generateQuiz(docName: string, textSnippet: string): Promise<QuizPaper> {
-  const userPrompt = `【文档名称】：${docName}\n\n【文档核心内容片段】：\n${textSnippet.slice(0, 4500)}`
+export async function generateQuiz(
+  docName: string,
+  textSnippet: string,
+  customInstruction?: string
+): Promise<QuizPaper> {
+  const instructionPart = customInstruction ? `\n\n【出题重点/附加要求】：\n${customInstruction}` : ''
+  const userPrompt = `【文档名称】：${docName}\n\n【文档核心内容片段】：\n${textSnippet.slice(0, 4500)}${instructionPart}`
   const call = llmJSON(
     [
       { role: 'system', content: SYS_QUIZ_GEN },
