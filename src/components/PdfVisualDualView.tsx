@@ -309,14 +309,20 @@ const PdfPageItem = memo(function PdfPageItem(props: {
 
   return (
     <div
-      className="relative rounded-xl border border-line-strong bg-card shadow-card transition-all"
+      className="relative shrink-0 rounded-xl border border-line-strong bg-card shadow-card transition-all mb-4"
       style={{
         width: `${pageSize.width}px`,
-        height: `${pageSize.height}px`
+        height: `${pageSize.height}px`,
+        minWidth: `${pageSize.width}px`,
+        minHeight: `${pageSize.height}px`
       }}
     >
       {/* 1. 底层高保真 Canvas (100% 呈现所有插图、图表、线条与原版结构) */}
-      <canvas ref={canvasRef} className="absolute inset-0 block rounded-xl" />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 block rounded-xl"
+        style={{ width: `${pageSize.width}px`, height: `${pageSize.height}px` }}
+      />
 
       {/* 2. 原版视窗交互探针层 */}
       {mode === 'original' && rendered && (
@@ -324,15 +330,21 @@ const PdfPageItem = memo(function PdfPageItem(props: {
           {segments.map((seg) => {
             if (!seg.rect) return null
             const isHovered = activeHoverSegId === seg.id
+            const hasTrans = !!seg.translation.trim()
+            const isTranslating = seg.translating
+
             return (
               <div
                 key={seg.id}
+                onClick={() => onTranslateOne(seg.id)}
                 onMouseEnter={() => onHoverSeg(seg.id)}
                 onMouseLeave={() => onHoverSeg(null)}
-                className={`absolute pointer-events-auto rounded-xs transition-all ${
+                className={`group absolute pointer-events-auto rounded-[3px] transition-all cursor-pointer ${
                   isHovered
-                    ? 'bg-accent/20 ring-2 ring-accent shadow-sm'
-                    : 'hover:bg-accent/10'
+                    ? 'bg-blue-500/20 ring-2 ring-blue-500 shadow-xs z-30'
+                    : hasTrans
+                    ? 'hover:bg-blue-500/15'
+                    : 'hover:bg-blue-500/10 hover:ring-1 hover:ring-blue-400/50'
                 }`}
                 style={{
                   left: `${seg.rect.x}%`,
@@ -340,8 +352,13 @@ const PdfPageItem = memo(function PdfPageItem(props: {
                   width: `${seg.rect.width}%`,
                   height: `${seg.rect.height}%`
                 }}
-                title={seg.text}
-              />
+                title={hasTrans ? `[已翻译] ${seg.translation}` : `点击翻译此段落: ${seg.text.slice(0, 50)}...`}
+              >
+                {/* 悬停微型翻译提示浮标 */}
+                <div className="hidden group-hover:flex absolute -top-5 left-0 z-40 items-center gap-1 bg-slate-900/90 text-white text-[9.5px] px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap backdrop-blur-xs">
+                  {isTranslating ? '⏳ 翻译中…' : hasTrans ? '✨ 点击重译' : '✨ 点击翻译此段'}
+                </div>
+              </div>
             )
           })}
         </div>
@@ -356,48 +373,56 @@ const PdfPageItem = memo(function PdfPageItem(props: {
             const hasTrans = !!seg.translation.trim()
             const isTranslating = seg.translating
             const isH = seg.type === 'h'
+            const isCaption = /^(Figure|Fig\.|Table|图|表)\s*\d+[:.]/i.test(seg.text)
 
             return (
               <div
                 key={seg.id}
+                onClick={() => !hasTrans && !isTranslating && onTranslateOne(seg.id)}
                 onMouseEnter={() => onHoverSeg(seg.id)}
                 onMouseLeave={() => onHoverSeg(null)}
                 className={`group absolute pointer-events-auto transition-all ${
                   hasTrans
-                    ? 'bg-card/96 dark:bg-[#1e1e20]/96 shadow-xs border border-accent/20 rounded-[3px] p-1'
+                    ? isCaption
+                      ? 'bg-amber-50 text-slate-800 border-l-[3px] border-amber-500 shadow-xs rounded-r-[3px] p-1'
+                      : 'bg-white text-slate-900 border border-slate-300/90 shadow-xs rounded-[3px] p-1'
                     : isTranslating
-                    ? 'bg-accent-soft/80 border border-accent animate-pulse rounded-[3px] p-1'
-                    : 'bg-white/60 dark:bg-black/40 hover:bg-white/95 border border-dashed border-ink-3/40 rounded-[3px] p-0.5'
-                } ${isHovered ? 'ring-2 ring-accent z-30 shadow-pop' : 'z-10'}`}
+                    ? 'bg-blue-50/95 border border-blue-400 animate-pulse rounded-[3px] p-1 shadow-xs text-blue-700'
+                    : 'bg-transparent hover:bg-blue-500/10 hover:ring-1 hover:ring-blue-500/40 rounded-[3px] cursor-pointer'
+                } ${isHovered ? 'ring-2 ring-blue-500 z-30 shadow-md' : 'z-10'}`}
                 style={{
                   left: `${seg.rect.x}%`,
                   top: `${seg.rect.y}%`,
-                  width: `${Math.max(seg.rect.width, 15)}%`,
+                  width: `${seg.rect.width}%`,
                   minHeight: `${seg.rect.height}%`
                 }}
               >
                 {hasTrans ? (
                   <div className="flex flex-col justify-between h-full select-text">
                     <p
-                      className={`leading-snug text-ink-1 break-words font-serif-reading ${
-                        isH ? 'font-bold text-[13px] text-accent' : 'text-[11.5px] font-medium'
+                      className={`leading-tight break-words font-serif-reading ${
+                        isH
+                          ? 'font-bold text-[12px] text-blue-900'
+                          : isCaption
+                          ? 'text-[10px] text-slate-800 italic'
+                          : 'text-[10.5px] font-normal text-slate-900'
                       }`}
                     >
                       {seg.translation}
                     </p>
 
                     {/* 悬停快捷工具条 */}
-                    <div className="mt-1 hidden group-hover:flex items-center justify-between border-t border-line/60 pt-0.5 text-[10px] text-ink-3">
+                    <div className="mt-1 hidden group-hover:flex items-center justify-between border-t border-slate-200 pt-0.5 text-[10px] text-slate-600">
                       <div className="flex items-center gap-1">
                         <button
-                          className="btn btn-ghost !p-0.5 hover:text-ink-1"
+                          className="btn btn-ghost !p-0.5 hover:text-slate-900"
                           onClick={() => window.bridge.speak(seg.translation)}
                           title="朗读译文"
                         >
                           <Volume2 size={10} />
                         </button>
                         <button
-                          className="btn btn-ghost !p-0.5 hover:text-ink-1"
+                          className="btn btn-ghost !p-0.5 hover:text-slate-900"
                           onClick={() => {
                             window.bridge.copyText(seg.translation)
                             toast('success', '已复制段落译文', '剪贴板')
@@ -407,20 +432,20 @@ const PdfPageItem = memo(function PdfPageItem(props: {
                           <Copy size={10} />
                         </button>
                       </div>
-                      <span className="text-[9px] text-accent font-mono">
-                        {isH ? '标题' : '段落'}
+                      <span className="text-[9px] text-blue-700 font-mono">
+                        {isH ? '标题' : isCaption ? '图表说明' : '段落'}
                       </span>
                     </div>
                   </div>
                 ) : isTranslating ? (
-                  <div className="flex items-center gap-1.5 text-[11px] text-accent font-medium py-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-blue-700 font-medium py-1">
                     <Loader2 size={11} className="animate-spin" />
                     <span>学术互译中…</span>
                   </div>
                 ) : (
                   <button
                     onClick={() => onTranslateOne(seg.id)}
-                    className="flex w-full items-center justify-center gap-1 text-[10px] text-ink-3 hover:text-accent py-0.5"
+                    className="hidden group-hover:flex w-full items-center justify-center gap-1 text-[10px] text-blue-700 bg-white/95 py-0.5 px-1.5 rounded shadow-xs border border-blue-200"
                     title="点击开始翻译此段落"
                   >
                     <Languages size={10} /> 翻译此段

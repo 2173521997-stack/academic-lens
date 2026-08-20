@@ -1,6 +1,7 @@
 import { marked } from 'marked'
 import type { Segment, SegmentType, Block, Inline } from './types'
 import { blockText } from './types'
+import { runDocLayoutAnalysis, getDocLayoutSession, type DetectedLayoutBox } from './docLayoutModel'
 
 let uid = 0
 
@@ -112,6 +113,7 @@ interface TextLine {
   maxY: number
   pageWidth: number
   pageHeight: number
+  colIndex: number
 }
 
 interface PdfTextItemLike {
@@ -127,7 +129,7 @@ async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promis
   const pageWidth = viewport.width || 612
   const pageHeight = viewport.height || 792
 
-  const items: TextItem[] = []
+  const rawItems: TextItem[] = []
   let maxH = 8
   for (const it of content.items as unknown as PdfTextItemLike[]) {
     const str = it.str ?? ''
@@ -136,7 +138,7 @@ async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promis
     const h = Math.abs(t[3] || 0) || 9
     const w = it.width || str.length * h * 0.55
     if (h > maxH) maxH = h
-    items.push({
+    rawItems.push({
       str,
       x: t[4] || 0,
       y: t[5] || 0,
@@ -145,12 +147,47 @@ async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promis
       bold: /bold/i.test(it.fontName ?? '')
     })
   }
-  items.sort((a, b) => b.y - a.y || a.x - b.x)
 
-  const lines: TextLine[] = []
-  for (const item of items) {
-    const last = lines[lines.length - 1]
-    if (last && Math.abs(item.y - last.y) <= Math.max(item.height, last.height) * 0.5) {
+  // 1. 过滤页眉页脚与边界元数据噪声（如 arXiv 顶栏标号、独立页码等）
+  const cleanItems = rawItems.filter((it) => {
+    const s = it.str.trim()
+    if (!s) return false
+    // 过滤顶部/底部极边缘的 arXiv 标签或单数字页码
+    if ((it.y > pageHeight * 0.965 || it.y < pageHeight * 0.035) && (/^arxiv:/i.test(s) || /^\d+$/.test(s))) {
+      return false
+    }
+    return true
+  })
+
+  if (!cleanItems.length) return []
+
+  // 2. 初始按 y 坐标降序（从上到下）、x 升序（从左到右）排序
+  cleanItems.sort((a, b) => b.y - a.y || a.x - b.x)
+
+  // 3. 聚合成原子行片段（避免将同高度但分属左右两栏的文字拼进同一行）
+  const lineFrags: {
+    items: TextItem[]
+    y: number
+    height: number
+    minX: number
+    maxX: number
+    minY: number
+    maxY: number
+    text: string
+  }[] = []
+
+  for (const item of cleanItems) {
+    const last = lineFrags[lineFrags.length - 1]
+    const sameY = last && Math.abs(item.y - last.y) <= Math.max(item.height, last.height) * 0.55
+    // 栏间隙检测：若同一 Y 高度但横向跳跃跨越页面中线（如左栏末尾到右栏开头），则不归为同一行
+    const isCrossingColumnGutter =
+      last &&
+      sameY &&
+      last.maxX < pageWidth * 0.52 &&
+      item.x > pageWidth * 0.48 &&
+      item.x - last.maxX > pageWidth * 0.04
+
+    if (sameY && !isCrossingColumnGutter) {
       last.items.push(item)
       last.height = Math.max(last.height, item.height)
       last.minX = Math.min(last.minX, item.x)
@@ -158,33 +195,123 @@ async function extractPageLines(page: import('pdfjs-dist').PDFPageProxy): Promis
       last.minY = Math.min(last.minY, item.y)
       last.maxY = Math.max(last.maxY, item.y + item.height)
     } else {
-      lines.push({
+      lineFrags.push({
         items: [item],
         y: item.y,
         height: item.height,
-        text: '',
         minX: item.x,
         maxX: item.x + item.width,
         minY: item.y,
         maxY: item.y + item.height,
-        pageWidth,
-        pageHeight
+        text: ''
       })
     }
   }
 
-  for (const line of lines) {
-    line.items.sort((a, b) => a.x - b.x)
+  // 构建各片段的文本内容
+  for (const frag of lineFrags) {
+    frag.items.sort((a, b) => a.x - b.x)
     let text = ''
     let prevEnd = 0
-    for (const it of line.items) {
-      if (text && it.x > prevEnd + it.height * 0.25) text += ' '
+    for (const it of frag.items) {
+      if (text && it.x > prevEnd + it.height * 0.22) text += ' '
       text += it.str
       prevEnd = it.x + it.width
     }
-    line.text = text
+    frag.text = text.trim()
   }
-  return lines.filter((l) => l.text.trim().length > 0)
+
+  const validFrags = lineFrags.filter((f) => f.text.length > 0)
+  if (!validFrags.length) return []
+
+  // 4. 多栏排版识别：统计左右两栏分布
+  let leftColCount = 0
+  let rightColCount = 0
+  for (const f of validFrags) {
+    const isFull = f.maxX - f.minX > pageWidth * 0.58 || (f.minX < pageWidth * 0.35 && f.maxX > pageWidth * 0.65)
+    if (!isFull) {
+      if (f.maxX <= pageWidth * 0.53) leftColCount++
+      else if (f.minX >= pageWidth * 0.47) rightColCount++
+    }
+  }
+
+  const isMultiColumn = leftColCount >= 3 && rightColCount >= 3
+
+  // 5. 按人类阅读顺序重构阅读流
+  let orderedFrags: { frag: (typeof validFrags)[0]; colIndex: number }[] = []
+
+  if (!isMultiColumn) {
+    validFrags.sort((a, b) => b.y - a.y || a.minX - b.minX)
+    orderedFrags = validFrags.map((f) => ({ frag: f, colIndex: 0 }))
+  } else {
+    // 将页面垂直切分为带（Bands）：通栏带（标题/摘要/跨栏图表）与分栏带（双栏正文）
+    type BandType = {
+      type: 'full' | 'columns'
+      frags: (typeof validFrags)[0][]
+    }
+
+    const bands: BandType[] = []
+    let curColFrags: (typeof validFrags)[0][] = []
+
+    for (const f of validFrags) {
+      const isFull = f.maxX - f.minX > pageWidth * 0.58 || (f.minX < pageWidth * 0.35 && f.maxX > pageWidth * 0.65)
+      if (isFull) {
+        if (curColFrags.length > 0) {
+          bands.push({ type: 'columns', frags: curColFrags })
+          curColFrags = []
+        }
+        bands.push({ type: 'full', frags: [f] })
+      } else {
+        curColFrags.push(f)
+      }
+    }
+    if (curColFrags.length > 0) {
+      bands.push({ type: 'columns', frags: curColFrags })
+    }
+
+    for (const band of bands) {
+      if (band.type === 'full') {
+        for (const f of band.frags) {
+          orderedFrags.push({ frag: f, colIndex: 0 })
+        }
+      } else {
+        const lefts: (typeof validFrags)[0][] = []
+        const rights: (typeof validFrags)[0][] = []
+        for (const f of band.frags) {
+          const midX = (f.minX + f.maxX) / 2
+          if (midX < pageWidth * 0.5) {
+            lefts.push(f)
+          } else {
+            rights.push(f)
+          }
+        }
+        // 左栏从上到下
+        lefts.sort((a, b) => b.y - a.y || a.minX - b.minX)
+        for (const f of lefts) {
+          orderedFrags.push({ frag: f, colIndex: 1 })
+        }
+        // 右栏从上到下
+        rights.sort((a, b) => b.y - a.y || a.minX - b.minX)
+        for (const f of rights) {
+          orderedFrags.push({ frag: f, colIndex: 2 })
+        }
+      }
+    }
+  }
+
+  return orderedFrags.map(({ frag, colIndex }) => ({
+    items: frag.items,
+    y: frag.y,
+    height: frag.height,
+    text: frag.text,
+    minX: frag.minX,
+    maxX: frag.maxX,
+    minY: frag.minY,
+    maxY: frag.maxY,
+    pageWidth,
+    pageHeight,
+    colIndex
+  }))
 }
 
 /** 检测一行是否 `<cell> | <cell>` 的对齐表格行 */
@@ -195,6 +322,210 @@ function isTableRow(line: TextLine): boolean {
   return cells.length >= 2 && cells.every((c) => c.trim().length > 0)
 }
 
+import { processFigureWithPaddle } from './paddleOcrModel'
+
+/** 将 DocLayout-YOLO 的 AI 版面框与 PDF 矢量文字精准空间求交融合，图像部分交由 PaddleOCR 处理 */
+async function buildSegmentsFromLayout(
+  boxes: DetectedLayoutBox[],
+  lines: TextLine[],
+  pageNo: number,
+  pageWidth: number,
+  pageHeight: number,
+  canvas?: HTMLCanvasElement
+): Promise<Segment[]> {
+  const result: Segment[] = []
+  const assignedLineIndices = new Set<number>()
+
+  for (const box of boxes) {
+    const boxPxX1 = box.box.x1 - 4
+    const boxPxX2 = box.box.x2 + 4
+    const boxPxY1 = box.box.y1 - 4
+    const boxPxY2 = box.box.y2 + 4
+
+    // 1. 对于插图和图表区域：使用 PaddleOCR 进行图像级文字识别
+    if (box.category === 'figure' || box.category === 'table') {
+      // 标记落在图表区域内的散落矢量字符为已占用（避免图内乱飞碎片框）
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li]
+        const lineTopDownY1 = pageHeight - line.maxY
+        const lineTopDownY2 = pageHeight - line.minY
+        const lineMidX = (line.minX + line.maxX) / 2
+        const lineMidY = (lineTopDownY1 + lineTopDownY2) / 2
+
+        if (lineMidX >= boxPxX1 && lineMidX <= boxPxX2 && lineMidY >= boxPxY1 && lineMidY <= boxPxY2) {
+          assignedLineIndices.add(li)
+        }
+      }
+
+      // 如果有渲染 Canvas，调用 PaddleOCR 识别图像中的文字
+      if (canvas) {
+        try {
+          const figureSegs = await processFigureWithPaddle(canvas, box.box, pageNo, pageWidth, pageHeight)
+          if (figureSegs.length > 0) {
+            result.push(...figureSegs)
+          }
+        } catch (err) {
+          console.warn('[PaddleOCR] 图表文字识别异常:', err)
+        }
+      }
+      continue
+    }
+
+    // 独立公式与页眉页脚废弃区：标记为已消耗
+    if (box.category === 'isolate_formula' || box.category === 'abandon') {
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li]
+        const lineTopDownY1 = pageHeight - line.maxY
+        const lineTopDownY2 = pageHeight - line.minY
+        const lineMidX = (line.minX + line.maxX) / 2
+        const lineMidY = (lineTopDownY1 + lineTopDownY2) / 2
+
+        if (lineMidX >= boxPxX1 && lineMidX <= boxPxX2 && lineMidY >= boxPxY1 && lineMidY <= boxPxY2) {
+          assignedLineIndices.add(li)
+        }
+      }
+      continue
+    }
+
+    // 2. 收集属于当前 AI 版面框的正文/标题/图注行
+    const matchedLines: TextLine[] = []
+    for (let li = 0; li < lines.length; li++) {
+      if (assignedLineIndices.has(li)) continue
+      const line = lines[li]
+      const lineTopDownY1 = pageHeight - line.maxY
+      const lineTopDownY2 = pageHeight - line.minY
+      const lineMidX = (line.minX + line.maxX) / 2
+      const lineMidY = (lineTopDownY1 + lineTopDownY2) / 2
+
+      if (lineMidX >= boxPxX1 && lineMidX <= boxPxX2 && lineMidY >= boxPxY1 && lineMidY <= boxPxY2) {
+        matchedLines.push(line)
+        assignedLineIndices.add(li)
+      }
+    }
+
+    if (matchedLines.length === 0) continue
+
+    // 3. 在版面框内按从上到下的 Top-Down 屏幕坐标排序
+    matchedLines.sort((a, b) => {
+      const aTop = pageHeight - a.maxY
+      const bTop = pageHeight - b.maxY
+      return aTop - bTop || a.minX - b.minX
+    })
+
+    // 4. 根据行间距切分自然段
+    const paragraphs: TextLine[][] = []
+    let currentPara: TextLine[] = [matchedLines[0]]
+
+    for (let i = 1; i < matchedLines.length; i++) {
+      const prev = matchedLines[i - 1]
+      const curr = matchedLines[i]
+      const prevBottom = pageHeight - prev.minY
+      const currTop = pageHeight - curr.maxY
+      const gap = currTop - prevBottom
+      const avgH = Math.max(prev.height, curr.height)
+
+      const isLargeGap = gap > avgH * 0.65
+      const isIndentedNewPara = /[.!?;:。！？]$/.test(prev.text.trim()) && curr.minX > prev.minX + 6
+
+      if (isLargeGap || isIndentedNewPara) {
+        paragraphs.push(currentPara)
+        currentPara = [curr]
+      } else {
+        currentPara.push(curr)
+      }
+    }
+    if (currentPara.length > 0) {
+      paragraphs.push(currentPara)
+    }
+
+    // 5. 为每个自然段计算 100% 严格贴合文字的紧密 Bounding Box
+    for (const paraLines of paragraphs) {
+      const text = paraLines.map((l) => l.text).join(' ').trim()
+      if (!text || text.length < 2) continue
+
+      const minX = Math.min(...paraLines.map((l) => l.minX))
+      const maxX = Math.max(...paraLines.map((l) => l.maxX))
+      const topDownY1 = Math.min(...paraLines.map((l) => pageHeight - l.maxY))
+      const topDownY2 = Math.max(...paraLines.map((l) => pageHeight - l.minY))
+
+      const tightRect = {
+        x: Math.max(0, Math.min(100, (minX / pageWidth) * 100)),
+        y: Math.max(0, Math.min(100, (topDownY1 / pageHeight) * 100)),
+        width: Math.max(2, Math.min(100, ((maxX - minX) / pageWidth) * 100)),
+        height: Math.max(1, Math.min(100, ((topDownY2 - topDownY1) / pageHeight) * 100))
+      }
+
+      if (box.category === 'title') {
+        result.push(
+          makeSegment('h', text, pageNo, {
+            kind: 'heading',
+            level: 1,
+            runs: [{ text }]
+          }, tightRect)
+        )
+      } else {
+        result.push(
+          makeSegment('p', text, pageNo, {
+            kind: 'paragraph',
+            runs: [{ text }]
+          }, tightRect)
+        )
+      }
+    }
+  }
+
+  // 6. 补充未能匹配进任何 AI 检测框的残留正文行
+  const unassignedLines = lines.filter((_, idx) => !assignedLineIndices.has(idx))
+  if (unassignedLines.length > 0) {
+    unassignedLines.sort((a, b) => {
+      const aTop = pageHeight - a.maxY
+      const bTop = pageHeight - b.maxY
+      return aTop - bTop || a.minX - b.minX
+    })
+
+    let cur: TextLine[] = []
+    for (const line of unassignedLines) {
+      if (line.text.trim().length < 15 && !/[.!?;:]$/.test(line.text)) continue
+      cur.push(line)
+      if (/[.!?;:]$/.test(line.text)) {
+        const curText = cur.map((l) => l.text).join(' ').trim()
+        if (curText) {
+          const minX = Math.min(...cur.map((l) => l.minX))
+          const maxX = Math.max(...cur.map((l) => l.maxX))
+          const topDownY1 = Math.min(...cur.map((l) => pageHeight - l.maxY))
+          const topDownY2 = Math.max(...cur.map((l) => pageHeight - l.minY))
+          const rect = {
+            x: Math.max(0, Math.min(100, (minX / pageWidth) * 100)),
+            y: Math.max(0, Math.min(100, (topDownY1 / pageHeight) * 100)),
+            width: Math.max(2, Math.min(100, ((maxX - minX) / pageWidth) * 100)),
+            height: Math.max(1, Math.min(100, ((topDownY2 - topDownY1) / pageHeight) * 100))
+          }
+          result.push(makeSegment('p', curText, pageNo, { kind: 'paragraph', runs: [{ text: curText }] }, rect))
+        }
+        cur = []
+      }
+    }
+    if (cur.length > 0) {
+      const curText = cur.map((l) => l.text).join(' ').trim()
+      if (curText && curText.length >= 15) {
+        const minX = Math.min(...cur.map((l) => l.minX))
+        const maxX = Math.max(...cur.map((l) => l.maxX))
+        const topDownY1 = Math.min(...cur.map((l) => pageHeight - l.maxY))
+        const topDownY2 = Math.max(...cur.map((l) => pageHeight - l.minY))
+        const rect = {
+          x: Math.max(0, Math.min(100, (minX / pageWidth) * 100)),
+          y: Math.max(0, Math.min(100, (topDownY1 / pageHeight) * 100)),
+          width: Math.max(2, Math.min(100, ((maxX - minX) / pageWidth) * 100)),
+          height: Math.max(1, Math.min(100, ((topDownY2 - topDownY1) / pageHeight) * 100))
+        }
+        result.push(makeSegment('p', curText, pageNo, { kind: 'paragraph', runs: [{ text: curText }] }, rect))
+      }
+    }
+  }
+
+  return result
+}
+
 export async function parsePdf(data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<Segment[]> {
   const pdfjs = await import('pdfjs-dist')
   const workerUrl = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
@@ -203,29 +534,57 @@ export async function parsePdf(data: Uint8Array, onProgress?: (done: number, tot
   const doc = await pdfjs.getDocument({ data: data.slice(0) }).promise
   const segs: Segment[] = []
   try {
-    const CONCURRENCY = 3
-    const results: TextLine[][] = new Array(doc.numPages)
-    let next = 0
-    const worker = async (): Promise<void> => {
-      while (next < doc.numPages) {
-        const i = next++
-        const page = await doc.getPage(i + 1)
-        results[i] = await extractPageLines(page)
-        onProgress?.(i + 1, doc.numPages)
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, doc.numPages) }, () => worker()))
+    // 预热检查 AI 版面模型
+    const hasAiModel = await getDocLayoutSession()
 
-    for (let i = 0; i < results.length; i++) {
-      const lines = results[i]
+    for (let i = 0; i < doc.numPages; i++) {
       const pageNo = i + 1
-      const bodyHeight = lines.reduce((m, l) => Math.max(m, l.height), 8)
+      const page = await doc.getPage(pageNo)
+      const lines = await extractPageLines(page)
+      const viewport = page.getViewport({ scale: 1.0 })
+      onProgress?.(pageNo, doc.numPages)
 
+      // 1. 优先尝试使用 DocLayout-YOLO AI 版面识别 + PaddleOCR 图像处理
+      if (hasAiModel) {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.floor(viewport.width)
+          canvas.height = Math.floor(viewport.height)
+          const ctx = canvas.getContext('2d', { willReadFrequently: true })
+          if (ctx) {
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            await page.render({ canvasContext: ctx, viewport, intent: 'display', canvas }).promise
+            const boxes = await runDocLayoutAnalysis(canvas)
+            if (boxes && boxes.length > 0) {
+              const aiSegs = await buildSegmentsFromLayout(boxes, lines, pageNo, viewport.width, viewport.height, canvas)
+              if (aiSegs.length > 0) {
+                segs.push(...aiSegs)
+                continue
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`[DocLayout AI] 第 ${pageNo} 页版面分析异常，自动降级为规则分栏:`, err)
+        }
+      }
+
+      // 2. 降级回退：使用规则分栏算法
+      const bodyHeight = lines.reduce((m, l) => Math.max(m, l.height), 8)
       let curLines: TextLine[] = []
       const flushPara = (segNo: number): void => {
         if (!curLines.length) return
         const curText = curLines.map((l) => l.text).join(' ').trim()
         if (!curText) {
+          curLines = []
+          return
+        }
+
+        const isCaption = /^(Figure|Fig\.|Table|图|表)\s*\d+[:.]/i.test(curText)
+        const isHeadingCandidate = curLines.some((l) => l.height >= bodyHeight * 1.15)
+        const isShortNoise = curText.length < 15 && !isCaption && !isHeadingCandidate && !/[.!?;:]$/.test(curText)
+
+        if (isShortNoise) {
           curLines = []
           return
         }
@@ -312,10 +671,53 @@ export async function parsePdf(data: Uint8Array, onProgress?: (done: number, tot
           continue
         }
 
-        const gapToNext = nextLine ? line.y - (nextLine.y + nextLine.height) : 0
-        const paraBreak = gapToNext > Math.max(line.height, 2) * 0.7
+        // 图表说明检测 (Figure Caption / Table Caption)
+        const isCaptionStart = /^(Figure|Fig\.|Table|图|表)\s*\d+[:.]/i.test(text)
+        if (isCaptionStart) {
+          flushPara(pageNo)
+          curLines.push(line)
+          while (li + 1 < lines.length) {
+            const nextL = lines[li + 1]
+            const nextT = nextL.text.trim()
+            if (nextL.height >= bodyHeight * 1.15 || /^(Figure|Fig\.|Table|图|表)\s*\d+[:.]/i.test(nextT)) {
+              break
+            }
+            const gap = line.y - (nextL.y + nextL.height)
+            if (gap > Math.max(line.height, 2) * 1.5 || nextL.colIndex !== line.colIndex) {
+              break
+            }
+            curLines.push(nextL)
+            li++
+            if (/[.!?;:]$/.test(nextT)) break
+          }
+          flushPara(pageNo)
+          li++
+          continue
+        }
+
         curLines.push(line)
-        if (paraBreak || /[.!?;:]$/.test(text)) {
+
+        let shouldFlush = false
+        if (!nextLine) {
+          shouldFlush = true
+        } else {
+          const isColSwitch =
+            line.colIndex !== nextLine.colIndex ||
+            nextLine.y > line.y + line.height * 2 ||
+            Math.abs(line.minX - nextLine.minX) > (line.pageWidth || 612) * 0.25
+
+          const gapToNext = line.y - (nextLine.y + nextLine.height)
+          const paraBreak = gapToNext > Math.max(line.height, 2) * 0.75
+
+          const endsWithPunct =
+            /[.!?。！？:：]$/.test(text) && (gapToNext > Math.max(line.height, 2) * 0.35 || isColSwitch)
+
+          if (isColSwitch || paraBreak || endsWithPunct) {
+            shouldFlush = true
+          }
+        }
+
+        if (shouldFlush) {
           flushPara(pageNo)
         }
         li++
