@@ -942,7 +942,7 @@ export async function runReAct(
     opts.onStep?.(step)
     // 回填观察：优先用结构化摘要（digest），避免大结果被截断导致决策失真
     const digest = result.digest ?? result.text
-    const observation = `${tool.name} 执行结果：\n${digest.slice(0, 800)}`
+    const observation = `${tool.name} 执行结果：\n${digest.slice(0, 3000)}`
     messages = [...messages, { role: 'user', content: `工具「${tool.name}」执行完毕，结果如下：\n${observation}\n请根据该结果决定下一步：继续调用工具，或给出最终回答。` }]
   }
 
@@ -962,6 +962,18 @@ export async function runReAct(
  */
 export function resolveByRules(text: string): { tool: ToolId; params: Record<string, string> } | null {
   const trimmed = text.trim()
+
+  // 复合/多步骤任务（含多动词或动作连接词）不走单规则快速通道，放行给 runReAct 多步自主规划
+  const COMPLEX_PATTERNS = [
+    /(?:先|首先).*?(?:然后|再|接着|最后)/i,
+    /(?:不仅|不仅要|既要).*?(?:还要|而且|也要)/i,
+    /(?:并且|而且|同时|并结合|并给出|并生成|并编写|并出题|并帮我)/i,
+    /(?:搜索|查找|检索).*?(?:并|然后|接着).*?(?:复现|总结|出题|分析|写代码|评审)/i
+  ]
+  if (COMPLEX_PATTERNS.some((p) => p.test(trimmed))) {
+    return null
+  }
+
   const rules: { re: RegExp; fn: (m: RegExpMatchArray, text: string) => { tool: ToolId; params: Record<string, string> } | null }[] = [
     // —— 顶刊审稿人评审与算法代码骨架 ——
     {
@@ -1041,7 +1053,8 @@ export function resolveByRules(text: string): { tool: ToolId; params: Record<str
     },
     // —— 学习增强（公式 / 润色） ——
     { re: /\$([^$]+)\$/i, fn: (m) => ({ tool: 'math_explain', params: { latex: m[1].trim() } }) },
-    { re: /(?:讲解|解释|拆解|讲一讲|讲下)\s*(?:这个|那个|一下|的)?\s*公式\s*[:：]?\s*(.+)/i, fn: (m) => ({ tool: 'math_explain', params: { latex: m[1].trim().slice(0, 240) } }) },
+    { re: /(?:讲解|解释|拆解|讲一讲|讲下|分析|推导)\s*(?:这个|那个|一下|的)?\s*(?:数学)?公式\s*[:：]?\s*(.+)/i, fn: (m) => ({ tool: 'math_explain', params: { latex: m[1].trim().slice(0, 400) } }) },
+    { re: /\\(?:frac|sum|int|mathbb|mathcal|sqrt|alpha|beta|gamma|sigma|lambda|nabla|partial)\b/i, fn: (_m, t) => ({ tool: 'math_explain', params: { latex: t } }) },
     {
       re: /润色\s*[:：]?\s*(.*)/i,
       fn: (_m, t) => {
