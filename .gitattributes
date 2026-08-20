@@ -8,11 +8,22 @@
 *.png binary
 *.jpg binary
 *.jpeg binary
+*.webp binary
+*.gif binary
+*.bmp binary
+*.avif binary
 *.ico binary
 *.pdf binary
 *.docx binary
 *.wasm binary
 *.traineddata binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.exe binary
+*.dmg binary
+*.zip binary
+*.7z binary
 
 # ESLint / Prettier 配置快照（若存在）
 .eslintrc* text eol=lf
