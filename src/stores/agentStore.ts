@@ -6,6 +6,7 @@ import {
   setAsyncReplySink, setAsyncLookup, agentContextBlock, type ToolId
 } from '../lib/agentTools'
 import { runReAct, resolveByRules, runTool } from '../lib/agentLoop'
+import { preprocessUserQuery } from '../lib/agentPreprocess'
 import { detectBestSubAgent, type SubAgentId } from '../lib/subAgents'
 import { decidePendingInput } from '../lib/confirm'
 import { useSettingsStore } from './settingsStore'
@@ -307,18 +308,19 @@ export const useAgentStore = create<AgentState>((set, get) => {
       set({ pendingConfirm: null })
     }
 
-    // 预处理：文档命令 / @段落引用 / 生词本提及（沿用原浮动面板的设计）
-    const resolvedText = resolveDocInput(text)
+    // 1. 本地智能数据清洗与预处理（去除口语噪声、关联上下文、识别实体）
+    const preprocessed = preprocessUserQuery(text)
+    const resolvedText = resolveDocInput(preprocessed.cleanedText)
 
-    const userMsg: AgentMessage = { id: newId(), role: 'user', content: resolvedText, refs: extractRefs(text) }
+    const userMsg: AgentMessage = { id: newId(), role: 'user', content: text, refs: extractRefs(text) }
     const toolMsg: AgentMessage = { id: newId(), role: 'tool', content: '', label: '理解中…' }
     pushMessages([...get().messages, userMsg, toolMsg])
     set({ streaming: true, input: '' })
     history.push({ role: 'user', content: resolvedText })
 
     void (async () => {
-      // 1) 确定性单工具快路径：命中即执行（await 结果），再组织一句话
-      const ruleHit = resolveByRules(resolvedText)
+      // 2. 快速通道决策：仅限确定性斜杠命令或极简单一指令
+      const ruleHit = preprocessed.quickAction ?? resolveByRules(resolvedText)
       if (ruleHit) {
         // 破坏性工具：先挂起、请求用户确认，不直接执行
         if (CONFIRM_TOOLS.has(ruleHit.tool)) {

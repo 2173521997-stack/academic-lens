@@ -28,6 +28,7 @@ import {
   evaluateIeltsToeflEssay
 } from './academicAdvanced'
 import { searchPhrasebank } from './academicPhrasebank'
+import { preprocessUserQuery } from './agentPreprocess'
 import { useProjectStore } from '../stores/projectStore'
 
 /* =====================================================================
@@ -791,7 +792,7 @@ function buildToolDescs(): string {
     word_lookup: 'word：要查询的英文单词（必填）；save：可选，为 true 时查询后加入生词本',
     grade_word: 'word：要分级的单词（可多个，空格/逗号分隔）',
     organize_words: 'mode：synonym | academic | affix | theme（可选，默认 synonym）',
-    wordbook_add: 'word：单词（必填）；definition：释义（可选）；context：语境（可选）；pos：词性（可选）。注意：会做统一清洗，明显拼写错误会被拦截并给建议，不会硬存错拼',
+    wordbook_add: 'word：单词（必填）；definition：释义（可选）；context：语境（可选）；pos：词性（可选）',
     wordbook_list: 'limit：返回词数（可选，默认 10）',
     navigate: 'view：home | wordbook | flashcard | quotes | stats | history | settings',
     set_lookup_source: 'source：dict（词典优先）或 llm（仅 AI）',
@@ -800,10 +801,27 @@ function buildToolDescs(): string {
     open_external: 'url：http/https 链接',
     flashcard_draw: 'count：抽卡数（1-20）',
     doc_summarize: 'focus：可选，关注特定领域的要点',
-    quiz_generate: 'context：可选，基于摘要或指定段落出题',
-    math_explain: 'latex：公式表达式；context：可选上下文',
-    polish_run: 'text：待润色英文；tone：strict | concise | hedging（默认 strict）',
-    history_search: 'keyword：要检索的历史关键词（文档名等），如「独立宣言」'
+    quiz_generate: 'context：可选，基于摘要、文献或指定主题出题',
+    quiz_grade: 'answers：用户提交的答案文本',
+    math_explain: 'latex：数学公式或 LaTeX 表达式；context：可选上下文',
+    polish_run: 'text：待润色英文文本；tone：strict | concise | hedging（默认 strict）',
+    history_search: 'keyword：要检索的历史关键词（文档名等）',
+    academic_search: 'query：论文检索主题或关键词（中英文均可，如 "Transformer Mamba"）',
+    github_search: 'query：GitHub 仓库/开源项目名称（如 "vllm"、"mamba"）',
+    huggingface_search: 'query：HuggingFace 模型名称（如 "llama-3"）',
+    bibtex_lookup: 'query：论文标题或元数据',
+    paper_review: '（无需参数，自动对当前打开的文献执行同行评审）',
+    code_generate: '（无需参数，自动基于当前论文算法生成 PyTorch 复现骨架）',
+    phrasebank_query: 'query：学术写作功能或场景（如 "research gap"、"intro"）',
+    grammar_analyze: 'sentence：需要拆解语法结构的长难句英文文本',
+    synonym_nuance: 'words：需要辨析的近义词/易混词（如 "ubiquitous vs pervasive"）',
+    ielts_toefl_evaluate: 'essay：要批改打分的雅思/托福大作文或小作文',
+    pipeline_study_pack: '（无需参数，生成文献研读全套学习包）',
+    project_list: '（无需参数，列出所有学术项目）',
+    project_create: 'title：新建项目的名称或研究主题',
+    project_add_doc: 'project：目标项目名称',
+    project_summary: '（无需参数，生成当前学术项目跨文献全景综述）',
+    report: '（无需参数，生成学习周报）'
   }
   return TOOLS.map((t) => {
     const params = extraParams[t.id] ?? '（无需参数）'
@@ -990,57 +1008,9 @@ export async function runReAct(
 
 /**
  * 确定性规则解析：
- * 【重要原则】：只拦截非常明确的命令前缀（如以 / 开头）或极短无歧义单指令。
- * 任何包含疑问词、学术对比、长文本、连词或复合意图的输入，一律返回 null，交由 LLM + ReAct 智能处理！
+ * 委托给本地智能数据清洗与预处理管道（preprocessUserQuery）。
+ * 仅对明确的斜杠命令或极简确定性单操作提供快速通道，把所有复杂意图决策权完整交由智能体大脑！
  */
 export function resolveByRules(text: string): { tool: ToolId; params: Record<string, string> } | null {
-  const trimmed = text.trim()
-  if (!trimmed) return null
-
-  // 1. 凡是问句、对比、或者带连词/多动词的长句，坚决不走单规则拦截
-  const NATURAL_CHAT_RE = /(?:什么|为什么|怎么|如何|哪|区别|对比|分析一下|评析|是否|吗|？|\?|先.*?然后|不仅.*?而且|并且|同时|并为|并帮|并生成|并出题)/i
-  if (trimmed.length > 25 || NATURAL_CHAT_RE.test(trimmed)) {
-    return null
-  }
-
-  // 2. 明确的命令前缀（斜杠命令）
-  if (trimmed.startsWith('/')) {
-    if (/^\/(?:出题|测验|自测|quiz)/i.test(trimmed)) return { tool: 'quiz_generate', params: { context: trimmed.replace(/^\/(?:出题|测验|自测|quiz)\s*/i, '') } }
-    if (/^\/(?:批改|判卷|grade)/i.test(trimmed)) return { tool: 'quiz_grade', params: { answers: trimmed.replace(/^\/(?:批改|判卷|grade)\s*/i, '') } }
-    if (/^\/(?:审稿|评审|review)/i.test(trimmed)) return { tool: 'paper_review', params: {} }
-    if (/^\/(?:复现|代码|code)/i.test(trimmed)) return { tool: 'code_generate', params: {} }
-    if (/^\/(?:句型|phrasebank)/i.test(trimmed)) return { tool: 'phrasebank_query', params: { query: trimmed.replace(/^\/(?:句型|phrasebank)\s*/i, '') } }
-    if (/^\/(?:长难句|语法|grammar)/i.test(trimmed)) return { tool: 'grammar_analyze', params: { sentence: trimmed.replace(/^\/(?:长难句|语法|grammar)\s*/i, '') } }
-    if (/^\/(?:辨析|同义词|synonym)/i.test(trimmed)) return { tool: 'synonym_nuance', params: { words: trimmed.replace(/^\/(?:辨析|同义词|synonym)\s*/i, '') } }
-    if (/^\/(?:雅思|托福|作文|ielts|toefl)/i.test(trimmed)) return { tool: 'ielts_toefl_evaluate', params: { essay: trimmed.replace(/^\/(?:雅思|托福|作文|ielts|toefl)\s*/i, '') } }
-    if (/^\/(?:搜索|论文|arxiv)/i.test(trimmed)) return { tool: 'academic_search', params: { query: trimmed.replace(/^\/(?:搜索|论文|arxiv)\s*/i, '') } }
-    if (/^\/(?:github|repo)/i.test(trimmed)) return { tool: 'github_search', params: { query: trimmed.replace(/^\/(?:github|repo)\s*/i, '') } }
-    if (/^\/(?:hf|huggingface|模型)/i.test(trimmed)) return { tool: 'huggingface_search', params: { query: trimmed.replace(/^\/(?:hf|huggingface|模型)\s*/i, '') } }
-    if (/^\/(?:bibtex|引用)/i.test(trimmed)) return { tool: 'bibtex_lookup', params: { query: trimmed.replace(/^\/(?:bibtex|引用)\s*/i, '') } }
-    if (/^\/(?:总结|摘要|summary)/i.test(trimmed)) return { tool: 'doc_summarize', params: {} }
-    if (/^\/(?:研读全套包|全套|studypack)/i.test(trimmed)) return { tool: 'pipeline_study_pack', params: {} }
-    if (/^\/(?:润色|polish)/i.test(trimmed)) return { tool: 'polish_run', params: { text: trimmed.replace(/^\/(?:润色|polish)\s*/i, '') } }
-    if (/^\/(?:周报|report)/i.test(trimmed)) return { tool: 'report', params: {} }
-  }
-
-  // 3. 极短确定性单动作（纯英语单词查词/分级、界面跳转）
-  const singleRules: { re: RegExp; fn: (m: RegExpMatchArray) => { tool: ToolId; params: Record<string, string> } | null }[] = [
-    { re: /^查(?:询|单词|词)?\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i, fn: (m) => ({ tool: 'word_lookup', params: { word: m[1] } }) },
-    { re: /^分级\s*[:：]?\s*([a-zA-Z][a-zA-Z'-]{1,45})$/i, fn: (m) => ({ tool: 'grade_word', params: { word: m[1] } }) },
-    { re: /^把\s*([a-zA-Z][a-zA-Z'-]{1,45})\s*(?:加入|存入|存进|记到)生词本$/i, fn: (m) => ({ tool: 'wordbook_add', params: { word: m[1] } }) },
-    { re: /^(?:打开|跳转到?|进入)(生词本|闪卡|设置|周报)$/i, fn: (m) => ({ tool: 'navigate', params: { view: m[1] === '生词本' ? 'wordbook' : m[1] === '闪卡' ? 'flashcard' : m[1] === '设置' ? 'settings' : 'stats' } }) },
-    { re: /^抽\s*(\d{1,2})\s*张?闪卡$/i, fn: (m) => ({ tool: 'flashcard_draw', params: { count: m[1] } }) },
-    { re: /^(?:生成)?周报$/i, fn: () => ({ tool: 'report', params: {} }) },
-    { re: /^研读全套包$/i, fn: () => ({ tool: 'pipeline_study_pack', params: {} }) }
-  ]
-
-  for (const r of singleRules) {
-    const m = trimmed.match(r.re)
-    if (m) {
-      const res = r.fn(m)
-      if (res) return res
-    }
-  }
-
-  return null
+  return preprocessUserQuery(text).quickAction ?? null
 }
