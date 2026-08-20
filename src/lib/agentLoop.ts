@@ -4,6 +4,7 @@ import { dictLookup } from './dictLookup'
 import { formatUapisCard } from './wordCard'
 import { cleanWord, suggestSpelling } from './wordClean'
 import { bestOfflineSpelling } from './suggest'
+import { isPhrase } from './phrases'
 import { aiGradeWords } from './flashcard'
 import { aiOrganize } from './organize'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -11,6 +12,10 @@ import { useWordbookStore } from '../stores/wordbookStore'
 import { executeTool, TOOLS, type ToolId, type ToolOutput } from './agentTools'
 import { useNoticeStore } from '../stores/noticeStore'
 import { useHistoryStore } from '../stores/historyStore'
+import { useFileStore } from '../stores/fileStore'
+import { generateQuiz } from './quiz'
+import { explainMath } from './mathExplain'
+import { polishText } from './polish'
 
 /* =====================================================================
  * ReAct 智能体循环 + 工具 Harness
@@ -47,6 +52,8 @@ export interface AgentLoopOptions {
   onTool?: (toolId: ToolId, params: Record<string, string>) => boolean
   /** 高模型产出的初步计划，注入首轮决策上下文（决策规划分层） */
   plan?: string
+  /** 多轮对话历史（不含当前用户输入），注入首轮决策上下文，支撑跨轮批改/追问 */
+  context?: LLMMessage[]
 }
 
 export interface ReActResult {
@@ -92,7 +99,13 @@ export async function runTool(id: ToolId, params: Record<string, string>): Promi
     case 'wordbook_add':
       return { text: await heavyWordbookAdd(params) }
     case 'doc_export':
-      return { text: await heavyDocExport() }
+      return { text: await heavyDocExport(params.format) }
+    case 'quiz_generate':
+      return { text: await heavyQuizGenerate() }
+    case 'math_explain':
+      return { text: await heavyMathExplain(params.latex ?? params.text ?? '', params.context) }
+    case 'polish_run':
+      return { text: await heavyPolish(params.text ?? '', params.tone) }
     case 'history_search': {
       const r = await heavyHistorySearch(params.keyword ?? params.text ?? '')
       return { text: r.text, digest: r.digest }
@@ -121,6 +134,10 @@ function makeDigest(id: ToolId, text: string): string | undefined {
 
 /** 查词：dict 优先（若可用），否则 AI 词卡 */
 async function heavyWordLookup(word: string): Promise<string> {
+  // 短语优先：绕过 cleanWord（它只取第一个单词，会破坏短语），直接走短语词卡（与快速翻译一致）
+  if (isPhrase(word)) {
+    return '〔来源：AI 词卡〕\n' + (await lookupPhraseViaAI(word.trim()))
+  }
   const cleaned = await cleanWord(word)
   if (!cleaned) return `没有识别到要查询的英文单词，请再提供一下。`
   const w = cleaned.word
@@ -155,6 +172,31 @@ async function heavyWordLookup(word: string): Promise<string> {
     })
   }
   return hint + '〔来源：AI 词卡〕\n' + (await lookupWordViaAI(w))
+}
+
+/** 纯 AI 短语词卡（对齐快速翻译的短语提示词，供循环内复用） */
+async function lookupPhraseViaAI(phrase: string): Promise<string> {
+  const messages = [
+    {
+      role: 'system' as const,
+      content:
+        '你是专业学术英语词典。请用简体中文解释用户给出的英文学术短语或词组，说明其含义与学术用法。必须严格按以下格式输出，每行一个字段，不要输出其他内容：\n' +
+        'word|短语本身\n' +
+        'phonetic|大致音标（可省略）\n' +
+        'pos|类型（如 phrase / prep. phrase / conj. / idiom）\n' +
+        'def|简明学术释义，多条用；分隔\n' +
+        'ex1|英文学术例句 | 中文翻译\n' +
+        'ex2|英文学术例句 | 中文翻译\n' +
+        '如果该短语是学术专业术语，在 def 末尾标注「（学术术语：所属领域）」'
+    },
+    { role: 'user' as const, content: phrase }
+  ]
+  try {
+    const call = agentComplete(messages, { temperature: 0, maxTokens: 900 })
+    return await call.promise
+  } catch (e) {
+    return `AI 短语查词失败：${e instanceof Error ? e.message : String(e)}`
+  }
 }
 
 /** 纯 AI 词卡（与 store 内 lookupWordViaAI 同构，供循环内复用） */
@@ -229,11 +271,64 @@ async function heavyOrganize(modeRaw?: string): Promise<{ text: string; digest?:
 }
 
 /** 导出译文 */
-async function heavyDocExport(): Promise<string> {
+async function heavyDocExport(formatRaw?: string): Promise<string> {
+  const format = formatRaw?.toLowerCase() === 'pdf' ? 'pdf' : 'md'
   // 该工具被 guard 在 agentTools 内做文件保存；此处借用其轻量包装
-  const out = executeTool('doc_export', {})
+  const out = executeTool('doc_export', { format })
   if (out.asyncStarted) return '已触发导出，结果稍后回填。'
   return out.text
+}
+
+/** 随堂测验：基于当前文档生成 3 道题（含参考答案供批改，答案组织回复时不应直接展示） */
+async function heavyQuizGenerate(): Promise<string> {
+  const { doc, segments } = useFileStore.getState()
+  if (!doc || !segments.length) return '请先在翻译页打开一篇文档，我才能基于它出题。'
+  const fullText = segments.map((s) => s.text).join('\n')
+  try {
+    const paper = await generateQuiz(doc.name, fullText)
+    const qs = paper.questions.map((q, i) => {
+      const opts = q.options?.length ? '\n' + q.options.map((o) => `  ${o.key}. ${o.text}`).join('\n') : ''
+      const kind = q.type === 'choice' ? '单选' : q.type === 'blank' ? '填空' : '简答'
+      return `${i + 1}. [${kind}] ${q.title}${opts}`
+    })
+    const answers = paper.questions.map((q, i) => `${i + 1}. 答案：${q.answer}\n解析：${q.explanation}`).join('\n')
+    return `【随堂测验 · ${paper.title}】\n${qs.join('\n\n')}\n\n（参考答案仅内部批改用，组织回复时先不要展示给用户，等用户作答后再逐题批改）\n${answers}`
+  } catch (e) {
+    return `出题失败：${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
+/** 公式讲解：大白话、直觉、符号表、推导步骤 */
+async function heavyMathExplain(latexRaw: string, context?: string): Promise<string> {
+  const trimmed = (latexRaw ?? '').trim()
+  if (!trimmed) return '请提供要讲解的公式（可直接贴 LaTeX 表达式，如 $E = mc^2$）。'
+  try {
+    const r = await explainMath(trimmed, context ?? '')
+    const symbols = r.symbols.length ? `\n\n【符号表】\n${r.symbols.map((s) => `· ${s.symbol}（${s.name}）：${s.meaning}`).join('\n')}` : ''
+    const steps = r.steps.length ? `\n\n【推导步骤】\n${r.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}` : ''
+    return `【公式】${r.latex}\n\n【一句话】${r.plainSummary}\n\n【直觉】${r.intuition}${symbols}${steps}`
+  } catch (e) {
+    return `公式讲解失败：${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
+/** 学术润色：严格/精炼/委婉三语气，返回润色全文 + 修改要点 + 学术搭配 */
+async function heavyPolish(textRaw: string, toneRaw?: string): Promise<string> {
+  const text = (textRaw ?? '').trim()
+  if (!text) return '请提供需要润色的英文学术文本。'
+  const tone = toneRaw === 'concise' || toneRaw === 'hedging' ? toneRaw : 'strict'
+  try {
+    const r = await polishText(text, tone)
+    const diffs = r.diffs.slice(0, 8).map((d) => `· ${d.original ?? ''} → ${d.replacement ?? ''}（${d.reason}）`).join('\n')
+    const collocs = r.collocations.slice(0, 6).map((c) => `· ${c.word}（${c.meaning}）：${c.usage}`).join('\n')
+    const improve = r.improvements.length ? `\n\n【改进要点】\n${r.improvements.map((i, n) => `${n + 1}. ${i}`).join('\n')}` : ''
+    return `【润色后 · ${r.wordCountOriginal} → ${r.wordCountPolished} 词】\n${r.polished}` +
+      improve +
+      (diffs ? `\n\n【关键修改】\n${diffs}` : '') +
+      (collocs ? `\n\n【学术搭配】\n${collocs}` : '')
+  } catch (e) {
+    return `润色失败：${e instanceof Error ? e.message : String(e)}`
+  }
 }
 
 /** 历史检索：按关键词查找历史摘要与文档译文 */
@@ -350,9 +445,10 @@ export async function runReAct(
 ): Promise<ReActResult> {
   const maxSteps = opts.maxSteps ?? REACT_MAX_STEPS
   const steps: AgentStep[] = []
-  // 初始用户输入作为第一轮 user 消息（可携带高模型产出的初步计划）
+  // 初始用户输入作为第一轮 user 消息（可携带高模型产出的初步计划 + 多轮历史）
   const seed: LLMMessage[] = [
     { role: 'system', content: REACT_SYS() },
+    ...(opts.context ?? []),
     {
       role: 'user',
       content: opts.plan
@@ -431,6 +527,7 @@ export function resolveByRules(text: string): { tool: ToolId; params: Record<str
     { re: /(跳转|打开|去|进入).*(闪卡|抽词)/i, fn: () => ({ tool: 'navigate', params: { view: 'flashcard' } }) },
     { re: /(跳转|打开|去|进入|看).*(统计|数据|周报)/i, fn: () => ({ tool: 'navigate', params: { view: 'stats' } }) },
     { re: /(跳转|打开|去|进入).*(设置)/i, fn: () => ({ tool: 'navigate', params: { view: 'settings' } }) },
+    { re: /(跳转|打开|去|进入).*(润色)/i, fn: () => ({ tool: 'navigate', params: { view: 'polish' } }) },
     // —— 生词本 ——
     { re: /多少词|有几个词|生词.*概览|掌握情况|复习情况|盘点/i, fn: () => ({ tool: 'wordbook_summary', params: {} }) },
     { re: /到期|该复习|要复习/i, fn: () => ({ tool: 'wordbook_due', params: {} }) },
@@ -461,6 +558,17 @@ export function resolveByRules(text: string): { tool: ToolId; params: Record<str
     { re: /(摘要|总结).*(文档|这篇)|总结一下/i, fn: () => ({ tool: 'doc_summarize', params: {} }) },
     { re: /(命中率|生词.*占比|陌生词)/i, fn: () => ({ tool: 'doc_unknown', params: {} }) },
     { re: /当前.*文档|这个文档|看.*文档上下文/i, fn: () => ({ tool: 'doc_context', params: {} }) },
+    // —— 学习增强（quiz / math / polish） ——
+    { re: /\$([^$]+)\$/i, fn: (m) => ({ tool: 'math_explain', params: { latex: m[1].trim() } }) },
+    { re: /(?:讲解|解释|拆解|讲一讲|讲下)\s*(?:这个|那个|一下|的)?\s*公式\s*[:：]?\s*(.+)/i, fn: (m) => ({ tool: 'math_explain', params: { latex: m[1].trim().slice(0, 240) } }) },
+    { re: /(考考我|随堂测验|自测题|出几道题|出题|测验)/i, fn: () => ({ tool: 'quiz_generate', params: {} }) },
+    { re: /润色\s*[:：]?\s*(.*)/i, fn: (_m, t) => {
+      // 提取「润色」指令后的正文作为待润色文本
+      const clean = t
+        .replace(/^(请|帮我|给|把|一下|这段|下面的|这个|那个|的|英文|文本|句子|段落|论文|润色|改写|精修|润一润|[:：\s])+/i, '')
+        .trim()
+      return { tool: 'polish_run', params: { text: clean.slice(0, 2000) } }
+    } },
     // —— 朗读 ——
     { re: /(朗读|发音|读一下|念一下).*([a-z][a-z'-]{1,45})/i, fn: (m) => ({ tool: 'speak', params: { text: m[2] } }) },
     // —— 历史检索：找之前某文档的摘要 / 译文 ——

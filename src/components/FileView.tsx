@@ -245,7 +245,7 @@ function CnSplitView(): React.JSX.Element {
   const [diffOn, setDiffOn] = useState(false)
   const [sentenceOn, setSentenceOn] = useState(false)
   const [blinderMode, setBlinderMode] = useState(false)
-  const [showQuiz, setShowQuiz] = useState(false)
+  const quizOpen = useFileStore((s) => s.quizOpen)
   const [mathFormula, setMathFormula] = useState<{ latex: string; context?: string } | null>(null)
   const [lineHeight, setLineHeight] = useState<'1.5' | '1.75' | '2.0'>('1.75')
 
@@ -321,7 +321,7 @@ function CnSplitView(): React.JSX.Element {
             </button>
             <button
               className="btn !border-accent/30 !bg-accent/10 !px-2.5 !py-1 text-[11px] font-semibold text-accent hover:!bg-accent/20"
-              onClick={() => setShowQuiz(true)}
+              onClick={() => useFileStore.getState().openQuiz()}
               title="根据当前文档内容生成 3 道随堂测验题"
             >
               <Award size={11} /> 📝 考考我
@@ -425,11 +425,11 @@ function CnSplitView(): React.JSX.Element {
       )}
 
       {/* 考考我自测弹窗 */}
-      {showQuiz && doc && (
+      {quizOpen && doc && (
         <QuizModal
           docName={doc.name}
           docText={fullDocText}
-          onClose={() => setShowQuiz(false)}
+          onClose={() => useFileStore.getState().closeQuiz()}
         />
       )}
     </div>

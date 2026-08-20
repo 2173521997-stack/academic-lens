@@ -52,7 +52,10 @@ const SKILL_EXAMPLES: Partial<Record<ToolId, string>> = {
   wordbook_list: '列出生词本前 10 个词',
   speak: '朗读一下单词 meticulous',
   open_external: '打开链接 https://example.com',
-  history_search: '查找之前《独立宣言》的译文'
+  history_search: '查找之前《独立宣言》的译文',
+  quiz_generate: '考考我，根据这篇文档出 3 道题',
+  math_explain: '讲解这个公式：$E = mc^2$',
+  polish_run: '润色这段英文：The results are very good...'
 }
 
 /**
@@ -74,7 +77,8 @@ const INSTANT_SKILLS: ReadonlySet<ToolId> = new Set<ToolId>([
   'set_lookup_source',
   'wordbook_summary',
   'wordbook_due',
-  'wordbook_list'
+  'wordbook_list',
+  'quiz_generate'
 ])
 
 /** 错误边界：对话区渲染异常时给出兜底而非白屏（借鉴 1.md 的状态响应式避坑） */
@@ -149,6 +153,7 @@ function AgentViewInner(): React.JSX.Element {
       case 'doc_summarize':
       case 'doc_unknown':
       case 'doc_export':
+      case 'quiz_generate':
         return fileDoc ? { disabled: false } : { disabled: true, reason: '当前未打开文档' }
       case 'organize_words':
       case 'wordbook_summary':
@@ -316,7 +321,23 @@ function AgentViewInner(): React.JSX.Element {
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] text-ink-3">接着：</span>
                       {m.followUps.map((f) => (
-                        <button key={f} className="chip cursor-pointer transition hover:brightness-95" onClick={() => send(f)}>
+                        <button
+                          key={f}
+                          className="chip cursor-pointer transition hover:brightness-95"
+                          onClick={() => {
+                            // 特殊续做：跨视图动作直接执行（打开测验弹窗 / 跳润色页），其余交给智能体
+                            if (f === '去阅读页做完整测验') {
+                              useFileStore.getState().openQuiz()
+                              go('home')
+                              return
+                            }
+                            if (f === '去润色页继续编辑') {
+                              go('polish')
+                              return
+                            }
+                            send(f)
+                          }}
+                        >
                           {f}
                         </button>
                       ))}

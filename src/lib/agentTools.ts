@@ -15,6 +15,7 @@ import { dictLookup } from './dictLookup'
 import { formatUapisCard } from './wordCard'
 import { analyzeUnknownWords } from './unknownWords'
 import { buildPlainTextHeader } from './exportText'
+import { buildBilingualPdfHtml } from './exportPdf'
 import { levelLabel } from './levels'
 
 /* =====================================================================
@@ -62,6 +63,10 @@ export type ToolId =
   // 端侧操作类
   | 'speak'
   | 'open_external'
+  // 学习增强（远程新增能力）
+  | 'quiz_generate'
+  | 'math_explain'
+  | 'polish_run'
 
 export interface AgentTool {
   id: ToolId
@@ -79,6 +84,9 @@ export const TOOLS: AgentTool[] = [
   { id: 'grade_word', category: '学习', name: '单词分级', desc: '为一个或几个单词标注难度档位（CEFR / 四六级 / 雅思 / 托福 / 专四专八）', sideEffect: false, maxParam: 240 },
   { id: 'organize_words', category: '学习', name: '整理生词', desc: '对生词本做智能整理（近反义 / 专业日常 / 词根词缀 / 主题）', sideEffect: false, maxParam: 30 },
   { id: 'flashcard_draw', category: '学习', name: '抽闪卡', desc: '从生词本抽取一组闪卡用于复习', sideEffect: true, maxParam: 10 },
+  { id: 'quiz_generate', category: '学习', name: '随堂测验', desc: '基于当前文档生成 3 道随堂自测题并逐题作答批改', sideEffect: false, maxParam: 40 },
+  { id: 'math_explain', category: '学习', name: '公式讲解', desc: '拆解论文中的数学公式：大白话、直觉、符号表、推导步骤', sideEffect: false, maxParam: 240 },
+  { id: 'polish_run', category: '学习', name: '学术润色', desc: '润色一段英文学术文本（严格/精炼/委婉三种语气），返回润色后全文与修改要点', sideEffect: false, maxParam: 2000 },
   // 项目工具类
   { id: 'doc_context', category: '项目', name: '文档上下文', desc: '返回当前是否打开文档及内容概况（分段数、开头若干段）', sideEffect: false },
   { id: 'doc_summarize', category: '项目', name: '文档摘要', desc: '触发当前文档的 AI 摘要生成', sideEffect: true },
@@ -104,7 +112,7 @@ export const TOOLS: AgentTool[] = [
 ]
 
 /** 允许访问的页面视图白名单 */
-const NAV_VIEWS = ['home', 'wordbook', 'flashcard', 'quotes', 'stats', 'history', 'settings'] as const
+const NAV_VIEWS = ['home', 'wordbook', 'flashcard', 'quotes', 'stats', 'history', 'settings', 'polish'] as const
 
 /**
  * 破坏性工具：执行前需用户二次确认（Human-in-the-Loop）。
@@ -258,6 +266,15 @@ export function executeTool(id: ToolId, params: Record<string, string>): ToolOut
     case 'doc_export': {
       const { segments, doc } = useFileStore.getState()
       if (!doc || !segments.length) return { text: '当前没有文档可导出。' }
+      const format = params.format?.toLowerCase() === 'pdf' ? 'pdf' : 'md'
+      if (format === 'pdf') {
+        // 双语对照 PDF：生成 A4 打印页并触发系统打印/另存 PDF
+        const html = buildBilingualPdfHtml(doc, segments)
+        void window.bridge.saveFile({ defaultPath: doc.name.replace(/\.[^.]+$/, '') + '-双语对照.pdf', data: html }).then((p) => {
+          pushToolReply('export', p ? `已导出双语 PDF 到 ${p}` : '已取消导出')
+        })
+        return { text: '', asyncStarted: true }
+      }
       const text = buildPlainTextHeader(doc, segments)
       void window.bridge.saveFile({ defaultPath: doc.name.replace(/\.[^.]+$/, '') + '-译文.md', data: text }).then((p) => {
       pushToolReply('export', p ? `已导出到 ${p}` : '已取消导出')
@@ -542,7 +559,7 @@ function useAgentStorePush(word: string): void {
 
 export const AGENT_SYS =
   '你是 Academic Lens 的智能助手。用户主要用它阅读英文文献、背单词、整理生词、复习与写周报。' +
-  '回答用简体中文，简明友好。你可以调用内置工具完成具体操作（查词、分级、整理、跳转、到期复习、生词概览、生词本列表、导出、摘要、周报、朗读、设目标、切换查词方式、开链接、历史检索）。' +
+  '回答用简体中文，简明友好。你可以调用内置工具完成具体操作（查词、分级、整理、跳转、到期复习、生词概览、生词本列表、导出、摘要、周报、朗读、设目标、切换查词方式、开链接、历史检索、随堂测验、公式讲解、学术润色）。' +
   '一个请求可能包含多个操作（例如「查词后存入生词本」）：先用工具查词拿到结果，再用生词本相关工具存词，最后用 1–2 句话总结。' +
   '执行工具后，用 1–2 句话摘要说明做了什么、结果是什么。' +
   '生词本按单词（不区分大小写）去重：同一单词不会重复添加，不要误导用户以为新增成功。如果某操作会改变归属或可能失败，如实说明。' +

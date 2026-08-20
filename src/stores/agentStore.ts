@@ -67,7 +67,10 @@ export const FOLLOW_UPS: Partial<Record<ToolId, string[]>> = {
   doc_summarize: ['翻译当前文档', '基于摘要出 3 道理解题'],
   history_search: ['把找到的译文导出保存'],
   wordbook_add: ['看看生词本概览', '给这词出 3 道题'],
-  report: ['导出生词命中列表', '看看生词本概览']
+  report: ['导出生词命中列表', '看看生词本概览'],
+  quiz_generate: ['批改我的答案', '去阅读页做完整测验'],
+  math_explain: ['讲一讲其中每个符号的含义', '再通俗地解释一遍'],
+  polish_run: ['用精炼语气再润一遍', '去润色页继续编辑']
 }
 
 /** 需要注入生词本详情的工具（特化注水） */
@@ -327,7 +330,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
           },
           // 破坏性工具：循环内同样挂起，交给用户二次确认
           onTool: (toolId) => !CONFIRM_TOOLS.has(toolId),
-          plan: plan ?? undefined
+          plan: plan ?? undefined,
+          // 注入多轮历史，支撑跨轮批改（如随堂测验逐题作答）与追问连贯性
+          context: history.slice(-CONTEXT_WINDOW)
         })
         if (blocked) {
           set({ pendingConfirm: { toolId: blocked.toolId, params: blocked.params, msgId: toolMsg.id } })

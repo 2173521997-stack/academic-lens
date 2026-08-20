@@ -23,12 +23,16 @@ interface FileState {
   error: string | null
   /** 本文档特化翻译领域（null = 跟随全局设置里的领域预设） */
   docDomain: DomainPreset | null
+  /** 是否请求打开「考考我」随堂测验弹窗（供智能体续做触发） */
+  quizOpen: boolean
 
   setDoc: (doc: DocInfo, segments: Segment[]) => void
   clearDoc: () => void
   setMode: (mode: DocMode) => void
   setViewLayout: (layout: ViewLayout) => void
   setDocDomain: (d: DomainPreset | null) => void
+  openQuiz: () => void
+  closeQuiz: () => void
 
   translateAll: () => void
   stopTranslate: () => void
@@ -290,6 +294,7 @@ export const useFileStore = create<FileState>((set, get) => {
     progress: { done: 0, total: 0 },
     error: null,
     docDomain: null,
+    quizOpen: false,
 
     setDoc: (doc, segments) => {
       translateActive = false
@@ -304,7 +309,8 @@ export const useFileStore = create<FileState>((set, get) => {
         summaryState: 'idle',
         progress: { done: 0, total: 0 },
         error: null,
-        docDomain: null
+        docDomain: null,
+        quizOpen: false
       })
       useHistoryStore.getState().add('file', doc.name, `${segments.length} 段 · ${(doc.size / 1024).toFixed(1)} KB`)
     },
@@ -313,7 +319,7 @@ export const useFileStore = create<FileState>((set, get) => {
       translateActive = false
       cancelAllRequests()
       failed = 0
-      set({ doc: null, segments: [], summary: '', summaryState: 'idle', progress: { done: 0, total: 0 }, error: null, docDomain: null })
+      set({ doc: null, segments: [], summary: '', summaryState: 'idle', progress: { done: 0, total: 0 }, error: null, docDomain: null, quizOpen: false })
     },
 
     setMode: (mode) => set({ mode }),
@@ -321,6 +327,10 @@ export const useFileStore = create<FileState>((set, get) => {
     setViewLayout: (viewLayout) => set({ viewLayout }),
 
     setDocDomain: (docDomain) => set({ docDomain }),
+
+    openQuiz: () => set({ quizOpen: true }),
+
+    closeQuiz: () => set({ quizOpen: false }),
 
     translateAll: () => {
       const segs = get().segments.filter((s) => !s.translation && !s.translating)

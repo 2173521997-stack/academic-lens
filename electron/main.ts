@@ -60,10 +60,12 @@ const abortControllers = new Map<string, AbortController>()
 let boundsTimer: NodeJS.Timeout | null = null
 let isQuitting = false
 let pendingOpenFile: string | null = null
-const shortcutStatus: Record<'toggle' | 'mode' | 'selection', boolean> = {
+const shortcutStatus: Record<'toggle' | 'mode' | 'selection', boolean> & { occupied: string[] } = {
   toggle: false,
   mode: false,
-  selection: false
+  selection: false,
+  /** 尝试注册但被其他应用占用的组合键（供设置页诊断展示） */
+  occupied: []
 }
 /** 一键翻译当前生效的触发键（Windows 多键并行，取首个成功注册者展示） */
 let selectionAccel = isWin ? 'Ctrl+Shift+X' : 'CommandOrControl+X'
@@ -627,9 +629,13 @@ function registerSelectionShortcut(): boolean {
       if (ok) {
         anyOk = true
         registeredAccels.push(acc)
+      } else {
+        // 被其他应用占用：记录用于诊断，继续尝试下一个候选键
+        shortcutStatus.occupied.push(acc)
       }
     } catch (e) {
       debugLog(`Register ${acc} error: ${e}`)
+      shortcutStatus.occupied.push(acc)
     }
   }
   selectionAccel = registeredAccels.join(' / ') || (isWin ? 'Ctrl+Shift+X' : 'CommandOrControl+X')
@@ -638,8 +644,10 @@ function registerSelectionShortcut(): boolean {
 
 function registerShortcuts(): void {
   globalShortcut.unregisterAll()
+  // 清空上一次诊断结果，重新收集
+  shortcutStatus.occupied = []
 
-  // 唤起小窗：支持 Ctrl+Shift+T / Alt+T / Alt+Space / F2
+  // 唤起小窗：Windows 支持 Ctrl+Shift+T / Alt+T / Alt+Space / F2（多候选并行，任一生效即可）
   const toggleCandidates = isWin
     ? ['CommandOrControl+Shift+T', 'Alt+T', 'Alt+Space', 'F2']
     : ['CommandOrControl+Shift+T', 'Alt+T']
@@ -652,11 +660,14 @@ function registerShortcuts(): void {
         mainWindow.webContents.send('mini:focus-input')
       })
       if (ok) okT = true
-    } catch {}
+      else shortcutStatus.occupied.push(acc)
+    } catch {
+      shortcutStatus.occupied.push(acc)
+    }
   }
   shortcutStatus.toggle = okT
 
-  // 任意时刻切换 小窗 / 大窗：支持 Ctrl+Shift+M / F11 / Alt+M
+  // 任意时刻切换 小窗 / 大窗：Windows 支持 Ctrl+Shift+M / F11 / Alt+M
   const modeCandidates = isWin
     ? ['CommandOrControl+Shift+M', 'F11', 'Alt+M']
     : ['CommandOrControl+Shift+M', 'Alt+M']
@@ -670,7 +681,10 @@ function registerShortcuts(): void {
         mainWindow.focus()
       })
       if (ok) okM = true
-    } catch {}
+      else shortcutStatus.occupied.push(acc)
+    } catch {
+      shortcutStatus.occupied.push(acc)
+    }
   }
   shortcutStatus.mode = okM
 

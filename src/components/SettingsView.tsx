@@ -61,7 +61,7 @@ export default function SettingsView(): React.JSX.Element {
   const [showKey, setShowKey] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string; registeredAccels?: string[] } | null>(null)
+  const [shortcutState, setShortcutState] = useState<{ toggle: boolean; mode: boolean; selection: boolean; selectionAccel?: string; registeredAccels?: string[]; occupied?: string[] } | null>(null)
   const [selTest, setSelTest] = useState<{ busy: boolean; ok?: boolean; msg?: string; accel?: string } | null>(null)
   const [axTrusted, setAxTrusted] = useState<boolean | null>(null)
 
@@ -599,6 +599,12 @@ export default function SettingsView(): React.JSX.Element {
               <p className="text-[11px] text-ink-3">可能被其他 App 占用，点此重试。</p>
             </div>
           )}
+          {shortcutState?.occupied?.length ? (
+            <div className="rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed">
+              <span className="font-semibold text-warning">以下组合键被其他应用占用，已自动改用其余可用键：</span>
+              <span className="text-ink-2">{shortcutState.occupied.join(' · ')}</span>
+            </div>
+          ) : null}
           <div className="rounded-xl border border-line bg-surface p-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[12px] font-medium">
