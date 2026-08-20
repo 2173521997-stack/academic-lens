@@ -278,9 +278,34 @@ function resolveQuickAction(
     const m = cl.match(/^把\s*([a-zA-Z][a-zA-Z'-]{1,45})/i)
     if (m) return { tool: 'wordbook_add', params: { word: m[1] } }
   }
-  if (/^(?:打开|跳转到?|进入)(生词本|闪卡|设置|周报)$/i.test(cl)) {
-    const m = cl.match(/^(?:打开|跳转到?|进入)(生词本|闪卡|设置|周报)$/i)
-    if (m) return { tool: 'navigate', params: { view: m[1] === '生词本' ? 'wordbook' : m[1] === '闪卡' ? 'flashcard' : m[1] === '设置' ? 'settings' : 'stats' } }
+  if (/^(?:打开|跳转到?|进入|切换到)(学术润色|论文润色|润色台|润色页|写作润色|文本翻译|学术翻译|翻译页|句型库|学术句型|phrasebank|长难句|语法精析|语法分析页|雅思|托福|作文精批|写作批改|双语精读|文献阅读|阅读页|审稿|同行评审|算法复现页|引用|bibtex|引用生成|图表ocr|ocr识别|生词本|闪卡|设置|周报|统计|美言|金句|学术项目|学术工作台|英语空间)$/i.test(cl)) {
+    const targetMap: Record<string, string> = {
+      学术润色: 'polish', 论文润色: 'polish', 润色台: 'polish', 润色页: 'polish', 写作润色: 'polish',
+      文本翻译: 'translate', 学术翻译: 'translate', 翻译页: 'translate',
+      句型库: 'phrasebank', 学术句型: 'phrasebank', phrasebank: 'phrasebank',
+      长难句: 'grammar', 语法精析: 'grammar', 语法分析页: 'grammar',
+      雅思: 'ielts', 托福: 'ielts', 作文精批: 'ielts', 写作批改: 'ielts',
+      双语精读: 'bilingual', 文献阅读: 'bilingual', 阅读页: 'bilingual',
+      审稿: 'review', 同行评审: 'review', 算法复现页: 'review',
+      引用: 'citation', bibtex: 'citation', 引用生成: 'citation',
+      图表ocr: 'image', ocr识别: 'image',
+      生词本: 'wordbook', 闪卡: 'flashcard', 设置: 'settings', 周报: 'stats', 统计: 'stats',
+      美言: 'quotes', 金句: 'quotes',
+      学术项目: 'research', 学术工作台: 'research',
+      英语空间: 'english'
+    }
+    const m = cl.match(/^(?:打开|跳转到?|进入|切换到)(.+)$/i)
+    if (m && targetMap[m[1]]) {
+      return { tool: 'navigate', params: { view: targetMap[m[1]] } }
+    }
+  }
+  if (/^(?:去|跳转到)(?:学术)?润色(?:台|页)?\s*[:：]?\s*([\s\S]+)$/i.test(cl)) {
+    const text = cl.replace(/^(?:去|跳转到)(?:学术)?润色(?:台|页)?\s*[:：]?\s*/i, '').trim()
+    if (text) return { tool: 'navigate', params: { view: 'polish', text } }
+  }
+  if (/^把\s*([\s\S]+?)\s*(?:放到|填入|传给|带到)(?:学术)?润色(?:台|页)?$/i.test(cl)) {
+    const m = cl.match(/^把\s*([\s\S]+?)\s*(?:放到|填入|传给|带到)(?:学术)?润色(?:台|页)?$/i)
+    if (m && m[1].trim()) return { tool: 'navigate', params: { view: 'polish', text: m[1].trim() } }
   }
   if (/^抽\s*(\d{1,2})\s*张?闪卡$/i.test(cl)) {
     const m = cl.match(/^抽\s*(\d{1,2})/i)

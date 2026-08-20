@@ -57,9 +57,15 @@ export default function ResearchView(): React.JSX.Element {
   const doc = useFileStore((s) => s.doc)
   const setDoc = useFileStore((s) => s.setDoc)
 
-  const [tab, setTab] = useState<ResearchTab>('reader')
-  const [readerSubTab, setReaderSubTab] = useState<ReaderSubTab>('bilingual')
-  const [writingSubTab, setWritingSubTab] = useState<WritingSubTab>('polish')
+  const tab = useAppStore((s) => s.researchTab)
+  const readerSubTab = useAppStore((s) => s.readerSubTab)
+  const writingSubTab = useAppStore((s) => s.writingSubTab)
+  const setResearchTab = useAppStore((s) => s.setResearchTab)
+
+  const setTab = (t: ResearchTab) => setResearchTab(t)
+  const setReaderSubTab = (st: ReaderSubTab) => setResearchTab('reader', st)
+  const setWritingSubTab = (st: WritingSubTab) => setResearchTab('writing', st)
+
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [newTitle, setNewTitle] = useState('')

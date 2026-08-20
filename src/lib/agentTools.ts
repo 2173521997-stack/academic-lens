@@ -6,10 +6,12 @@ import { useReviewLogStore } from '../stores/reviewLogStore'
 import { useReportStore } from '../stores/reportStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useProfileStore, profileContext } from '../stores/profileStore'
+import { usePolishStore } from '../stores/polishStore'
 import { useNoticeStore } from '../stores/noticeStore'
 import { useHistoryStore } from '../stores/historyStore'
 import { masteryLevel, isDue } from './srs'
 import { aiGradeWords } from './flashcard'
+import { deterministicGradeWords } from './deterministicLexicon'
 import { aiOrganize } from './organize'
 import { dictLookup } from './dictLookup'
 import { formatUapisCard } from './wordCard'
@@ -148,7 +150,7 @@ export const TOOLS: AgentTool[] = [
   { id: 'set_goal', category: '个性化', name: '设置学习目标', desc: '记录学习目标 / 水平 / 偏好，后续对话会参考', sideEffect: true, maxParam: 120 },
   { id: 'get_profile', category: '个性化', name: '查看档案', desc: '返回当前保存的学习目标与偏好档案', sideEffect: false },
   // 设置类
-  { id: 'navigate', category: '设置', name: '跳转页面', desc: '跳转到主界面的一个功能页', sideEffect: true },
+  { id: 'navigate', category: '设置', name: '跳转页面', desc: '跳转到主界面或指定子工作台（如 polish润色/translate翻译/phrasebank句型/grammar长难句/ielts作文/review审稿/citation引用/flashcard闪卡/wordbook生词/stats统计/settings等）', sideEffect: true, maxParam: 500 },
   { id: 'set_lookup_source', category: '设置', name: '切换查词方式', desc: '切换查词双轨：dict（词典优先）或 llm（仅 AI）', sideEffect: true, maxParam: 10 },
   { id: 'wordbook_add', category: '设置', name: '添加生词', desc: '向生词本添加一个单词（附释义与语境）', sideEffect: true, maxParam: 400 },
   { id: 'wordbook_summary', category: '设置', name: '生词本概览', desc: '生词本统计：总词数、掌握度分布、今日到期、近7天复习与正确率', sideEffect: false },
@@ -169,8 +171,14 @@ export const TOOLS: AgentTool[] = [
   { id: 'classic_allusion_lookup', category: '人文社科', name: '经典典故溯源', desc: '考据西方文学名篇、古希腊罗马神话、圣经叙事与名句的出处与文化意涵', sideEffect: false, maxParam: 150 }
 ]
 
-/** 允许访问的页面视图白名单 */
-const NAV_VIEWS = ['home', 'wordbook', 'flashcard', 'quotes', 'stats', 'history', 'settings', 'polish'] as const
+/** 允许访问的页面与子工作台白名单 */
+export const NAV_VIEWS = [
+  'home', 'research', 'reader', 'bilingual', 'summary', 'review', 'peer_review', 'citation', 'bibtex',
+  'writing', 'polish', 'translate', 'text_translate', 'image', 'ocr',
+  'english', 'vocabulary', 'wordbook', 'flashcard', 'history',
+  'advanced', 'phrasebank', 'grammar', 'ielts', 'toefl', 'essay',
+  'profile', 'goals', 'stats', 'report', 'quotes', 'agent', 'settings'
+] as const
 
 /**
  * 破坏性工具：执行前需用户二次确认（Human-in-the-Loop）。
@@ -265,11 +273,33 @@ export function executeTool(id: ToolId, params: Record<string, string>): ToolOut
       const raw = (params.word ?? '').trim()
       const words = raw.split(/[\s,，;；、]+/).filter((w) => /^[A-Za-z][A-Za-z'-]{1,45}$/.test(w)).slice(0, 12)
       if (!words.length) return { text: '请提供要分级的英文单词。' }
-      void aiGradeWords(words).then((res) => {
-        const lines = res.length
-          ? res.map((r) => `${r.word} → ${levelLabel(r.level)}`).join('\n')
-          : '未能识别这些单词。'
-        pushToolReply(words.join('、'), lines)
+
+      // 1. 确定性考纲算法优先匹配（零幻觉、秒级直出）
+      const detResults = deterministicGradeWords(words)
+      const unhitWords = detResults.filter((r) => !r.isDeterministic).map((r) => r.word)
+
+      if (unhitWords.length === 0) {
+        const lines = detResults.map((r) => {
+          const point = r.examPoint ? `\n   🎯 考点：${r.examPoint}` : ''
+          const coll = r.collocation ? `\n   🔗 搭配：${r.collocation}` : ''
+          return `• **${r.word}** → 【${r.levelBadge}】(${r.examTags.join('/')})${point}${coll}`
+        }).join('\n\n')
+        return { text: `### 🎯 确定性考纲分级结果\n\n${lines}` }
+      }
+
+      // 2. 未收录词汇走 AI 分级评估补充
+      void aiGradeWords(unhitWords).then((aiRes) => {
+        const aiMap = new Map(aiRes.map((a) => [a.word.toLowerCase(), a.level]))
+        const lines = detResults.map((r) => {
+          if (r.isDeterministic) {
+            const point = r.examPoint ? `\n   🎯 考点：${r.examPoint}` : ''
+            const coll = r.collocation ? `\n   🔗 搭配：${r.collocation}` : ''
+            return `• **${r.word}** → 【${r.levelBadge}】(确定性考纲)${point}${coll}`
+          }
+          const lvl = aiMap.get(r.word.toLowerCase())
+          return `• **${r.word}** → 【${lvl ? levelLabel(lvl) : '通用词汇'}】(AI 评估)`
+        }).join('\n\n')
+        pushToolReply(words.join('、'), `### 🎯 考纲分级结果（确定性算法 + AI 评估）\n\n${lines}`)
       })
       return { text: '', asyncStarted: true }
     }
@@ -387,12 +417,51 @@ export function executeTool(id: ToolId, params: Record<string, string>): ToolOut
 
     /* ---------- 设置类 ---------- */
     case 'navigate': {
-      const v = params.view?.toLowerCase() ?? ''
-      if (!(NAV_VIEWS as readonly string[]).includes(v)) {
-        return { text: `无法跳转到未知页面：${v || '（空）'}。可选：${NAV_VIEWS.join('、')}` }
+      const v = (params.view || params.target || params.page || '').toLowerCase().trim()
+      if (!v) return { text: '请指定要跳转的目标页面或功能。' }
+      if (!(NAV_VIEWS as readonly string[]).includes(v as (typeof NAV_VIEWS)[number])) {
+        return { text: `无法跳转到未知页面：${v}。可选：${NAV_VIEWS.join('、')}` }
       }
-      useAppStore.getState().go(v as (typeof NAV_VIEWS)[number])
-      return { text: `已跳转到「${v}」页` }
+      const text = params.text || params.query || ''
+      if (text && (v === 'polish' || v === 'writing')) {
+        usePolishStore.getState().setInput(text)
+      }
+      useAppStore.getState().go(v as (typeof NAV_VIEWS)[number], { text })
+      const pageNames: Record<string, string> = {
+        research: '来做学术工作台',
+        reader: '文献研读（双语精读）',
+        bilingual: '文献双语精读',
+        summary: '文献核心摘要与综述',
+        review: '顶刊审稿与算法复现',
+        peer_review: '顶刊审稿与算法复现',
+        citation: '引用与 BibTeX 生成',
+        bibtex: '引用与 BibTeX 生成',
+        writing: '学术写作与润色',
+        polish: '学术论文润色',
+        translate: '学术文本翻译',
+        image: '论文图表 OCR',
+        ocr: '论文图表 OCR',
+        english: '来学英语空间',
+        vocabulary: '词汇与记忆中心',
+        wordbook: '我的生词本',
+        flashcard: '闪卡复习',
+        history: '历史记录回填',
+        advanced: '学术英语进阶学院',
+        phrasebank: '曼彻斯特学术句型库',
+        grammar: '长难句语法精析',
+        ielts: '雅思/托福考官精批',
+        toefl: '雅思/托福考官精批',
+        essay: '雅思/托福考官精批',
+        profile: '学情档案与美言',
+        goals: '学习目标与档案',
+        stats: '学情周报与统计',
+        report: '学情周报与统计',
+        quotes: '美言金句积累',
+        settings: '系统设置',
+        agent: '智能体全能中枢'
+      }
+      const label = pageNames[v] || v
+      return { text: `已为您无缝切换至「${label}」工作台${text ? '并已填入指定内容' : ''}。` }
     }
 
     case 'set_lookup_source': {
@@ -492,12 +561,24 @@ function profileOr(empty: string): string {
 type Rule = { re: RegExp; rule: (m: RegExpMatchArray, text: string) => ToolCall[] }
 
 const RULE_MAP: Rule[] = [
-  // 导航
+  // 导航与页面操控
+  { re: /(跳转|打开|去|进入).*(学术润色|论文润色|润色台|润色页|写作润色)/i, rule: () => [call('navigate', { view: 'polish' })] },
+  { re: /(跳转|打开|去|进入).*(文本翻译|学术翻译|翻译页)/i, rule: () => [call('navigate', { view: 'translate' })] },
+  { re: /(跳转|打开|去|进入).*(句型库|学术句型|phrasebank)/i, rule: () => [call('navigate', { view: 'phrasebank' })] },
+  { re: /(跳转|打开|去|进入).*(长难句|语法精析|语法分析页)/i, rule: () => [call('navigate', { view: 'grammar' })] },
+  { re: /(跳转|打开|去|进入).*(雅思|托福|作文精批|写作批改)/i, rule: () => [call('navigate', { view: 'ielts' })] },
+  { re: /(跳转|打开|去|进入).*(双语精读|文献阅读|阅读页)/i, rule: () => [call('navigate', { view: 'bilingual' })] },
+  { re: /(跳转|打开|去|进入).*(审稿|同行评审|算法复现页)/i, rule: () => [call('navigate', { view: 'review' })] },
+  { re: /(跳转|打开|去|进入).*(引用|bibtex|引用生成)/i, rule: () => [call('navigate', { view: 'citation' })] },
+  { re: /(跳转|打开|去|进入).*(图表ocr|ocr识别|图片识别)/i, rule: () => [call('navigate', { view: 'image' })] },
   { re: /(跳转|打开|去|进入).*(生词本)/i, rule: () => [call('navigate', { view: 'wordbook' })] },
   { re: /(跳转|打开|去|进入).*(闪卡|抽词)/i, rule: () => [call('navigate', { view: 'flashcard' })] },
   { re: /(跳转|打开|去|进入).*(美言|名言)/i, rule: () => [call('navigate', { view: 'quotes' })] },
   { re: /(跳转|打开|去|进入|看).*(统计|数据|周报)/i, rule: () => [call('navigate', { view: 'stats' })] },
+  { re: /(跳转|打开|去|进入).*(目标|学习档案)/i, rule: () => [call('navigate', { view: 'goals' })] },
   { re: /(跳转|打开|去|进入).*(设置)/i, rule: () => [call('navigate', { view: 'settings' })] },
+  { re: /(跳转|打开|去|进入).*(来做学术|学术工作台|项目工作台)/i, rule: () => [call('navigate', { view: 'research' })] },
+  { re: /(跳转|打开|去|进入).*(来学英语|英语空间|英语学院)/i, rule: () => [call('navigate', { view: 'english' })] },
   // 生词本
   { re: /多少词|有几个词|生词.*概览|掌握情况|复习情况|盘点/i, rule: () => [call('wordbook_summary')] },
   { re: /到期|该复习|要复习/i, rule: () => [call('wordbook_due')] },

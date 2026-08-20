@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   BookOpen,
   GraduationCap,
@@ -16,6 +16,7 @@ import { marked } from 'marked'
 import { sanitizeHtml } from '../lib/sanitize'
 import { useWordbookStore } from '../stores/wordbookStore'
 import { useProfileStore } from '../stores/profileStore'
+import { useAppStore, type EnglishTab, type VocabSubTab, type AdvancedSubTab, type ProfileSubTab } from '../stores/appStore'
 import { isDue } from '../lib/srs'
 import { ACADEMIC_PHRASEBANK, searchPhrasebank } from '../lib/academicPhrasebank'
 import { analyzeGrammarTree, evaluateIeltsToeflEssay } from '../lib/academicAdvanced'
@@ -26,16 +27,17 @@ import QuoteView from './QuoteView'
 import StatsView from './StatsView'
 import HistoryView from './HistoryView'
 
-type EnglishTab = 'vocabulary' | 'advanced' | 'profile'
-type VocabSubTab = 'wordbook' | 'flashcard' | 'history'
-type AdvancedSubTab = 'phrasebank' | 'grammar' | 'writing'
-type ProfileSubTab = 'goals' | 'stats' | 'quotes'
-
 export default function EnglishView(): React.JSX.Element {
-  const [tab, setTab] = useState<EnglishTab>('vocabulary')
-  const [vocabSub, setVocabSub] = useState<VocabSubTab>('wordbook')
-  const [advancedSub, setAdvancedSub] = useState<AdvancedSubTab>('phrasebank')
-  const [profileSub, setProfileSub] = useState<ProfileSubTab>('goals')
+  const tab = useAppStore((s) => s.englishTab)
+  const vocabSub = useAppStore((s) => s.vocabSubTab)
+  const advancedSub = useAppStore((s) => s.advancedSubTab)
+  const profileSub = useAppStore((s) => s.profileSubTab)
+  const setEnglishTab = useAppStore((s) => s.setEnglishTab)
+
+  const setTab = (t: EnglishTab) => setEnglishTab(t)
+  const setVocabSub = (st: VocabSubTab) => setEnglishTab('vocabulary', st)
+  const setAdvancedSub = (st: AdvancedSubTab) => setEnglishTab('advanced', st)
+  const setProfileSub = (st: ProfileSubTab) => setEnglishTab('profile', st)
 
   const words = useWordbookStore((s) => s.words)
   const profile = useProfileStore((s) => s.profile)
@@ -262,8 +264,17 @@ export default function EnglishView(): React.JSX.Element {
  * 1. 学术写作句型库工作区（Academic Phrasebank）
  * ===================================================================== */
 function PhrasebankWorkspace(): React.JSX.Element {
+  const storeQuery = useAppStore((s) => s.phrasebankQuery)
+  const setStoreQuery = useAppStore((s) => s.setPhrasebankQuery)
   const [keyword, setKeyword] = useState('')
   const [activeCat, setActiveCat] = useState<string>('intro')
+
+  useEffect(() => {
+    if (storeQuery) {
+      setKeyword(storeQuery)
+      setStoreQuery('')
+    }
+  }, [storeQuery, setStoreQuery])
 
   const filtered = keyword.trim() ? searchPhrasebank(keyword) : null
   const curCategory = ACADEMIC_PHRASEBANK.find((c) => c.id === activeCat) || ACADEMIC_PHRASEBANK[0]
@@ -391,11 +402,29 @@ function PhrasebankWorkspace(): React.JSX.Element {
  * 2. 学术长难句语法精析工作台（Grammar Deep Dive）
  * ===================================================================== */
 function GrammarWorkspace(): React.JSX.Element {
+  const storeGrammar = useAppStore((s) => s.grammarInput)
+  const setStoreGrammar = useAppStore((s) => s.setGrammarInput)
   const [inputSentence, setInputSentence] = useState(
     'Although many deep learning architectures have demonstrated remarkable empirical performance across diverse benchmarks, the underlying theoretical mechanisms governing their generalization capability remain poorly understood.'
   )
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (storeGrammar) {
+      setInputSentence(storeGrammar)
+      setStoreGrammar('')
+      void (async () => {
+        setLoading(true)
+        try {
+          const res = await analyzeGrammarTree(storeGrammar.trim())
+          setResult(res)
+        } finally {
+          setLoading(false)
+        }
+      })()
+    }
+  }, [storeGrammar, setStoreGrammar])
 
   const handleAnalyze = async () => {
     if (!inputSentence.trim()) return
@@ -458,6 +487,8 @@ function GrammarWorkspace(): React.JSX.Element {
  * 3. 雅思 / 托福学术写作考官精批工作台（Writing Coach）
  * ===================================================================== */
 function WritingWorkspace(): React.JSX.Element {
+  const storeWriting = useAppStore((s) => s.writingInput)
+  const setStoreWriting = useAppStore((s) => s.setWritingInput)
   const [promptText, setPromptText] = useState(
     'Some people believe that universities should focus on providing specialized job skills, while others argue for a broader education. Discuss both views and give your opinion.'
   )
@@ -466,6 +497,13 @@ function WritingWorkspace(): React.JSX.Element {
   )
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (storeWriting) {
+      setEssayText(storeWriting)
+      setStoreWriting('')
+    }
+  }, [storeWriting, setStoreWriting])
 
   const handleEvaluate = async () => {
     if (!essayText.trim()) return

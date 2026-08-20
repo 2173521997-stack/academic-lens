@@ -31,6 +31,12 @@ export interface AgentMessage {
   id: string
   role: 'user' | 'assistant' | 'tool'
   content: string
+  /** 深度思考推理过程内容（<think> 标签内提取） */
+  thinking?: string
+  /** 思考耗时秒数 */
+  thinkTimeSeconds?: number
+  /** 是否正在深度思考中 */
+  isThinking?: boolean
   /** 工具执行标签，如「工具：学情周报」 */
   label?: string
   /** 响应专家子智能体标识 */
@@ -64,7 +70,10 @@ interface AgentState {
   input: string
   hasAgentApi: boolean
   pendingConfirm: PendingConfirm | null
+  /** 智能体双模态：'fast' 极速秒级直出 vs 'deep' 深度思考推理 */
+  agentMode: 'fast' | 'deep'
 
+  setAgentMode: (mode: 'fast' | 'deep') => void
   toggleSidebar: () => void
   createSession: () => string
   switchSession: (id: string) => void
@@ -405,12 +414,21 @@ export const useAgentStore = create<AgentState>((set, get) => {
       set({ pendingConfirm: null })
     }
 
-    // 1. 本地智能数据清洗与预处理（去除口语噪声、关联上下文、识别实体）
+    // 1. 输入预清洗（去口语、识别实体）
     const preprocessed = preprocessUserQuery(text)
-    const resolvedText = resolveDocInput(preprocessed.cleanedText)
+    let resolvedText = resolveDocInput(preprocessed.cleanedText)
+    if (get().agentMode === 'deep') {
+      resolvedText += '\n\n【深度思考模式开启】：请务必先使用 <think>...</think> 标签详细写出你的思考推理过程（包含用户意图深剖、学术严谨性推导、潜在反例及决策理由），在 </think> 之后再输出正式详尽的解答。'
+    }
 
     const userMsg: AgentMessage = { id: newId(), role: 'user', content: text, refs: extractRefs(text) }
-    const toolMsg: AgentMessage = { id: newId(), role: 'tool', content: '', label: '理解中…' }
+    const toolMsg: AgentMessage = {
+      id: newId(),
+      role: 'tool',
+      content: '',
+      label: get().agentMode === 'deep' ? '🧠 深度思考中…' : '思考中…',
+      isThinking: get().agentMode === 'deep'
+    }
     pushMessages([...get().messages, userMsg, toolMsg])
     set({ streaming: true, input: '' })
     history.push({ role: 'user', content: resolvedText })
@@ -682,7 +700,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
     input: '',
     hasAgentApi: Boolean(useSettingsStore.getState().settings.agentApiKey),
     pendingConfirm: null,
+    agentMode: 'fast',
 
+    setAgentMode: (mode: 'fast' | 'deep') => set({ agentMode: mode }),
     toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 
     createSession: () => {

@@ -1,8 +1,9 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Bot, Send, Square, Trash2, Wrench, AlertTriangle,
-  BookOpen, FileText, BadgeCheck, Settings, TerminalSquare, Plus, X, Paperclip,
-  Sparkles, Award, MessageSquare, PanelLeftClose, PanelLeftOpen, Edit2
+  BookOpen, Settings, TerminalSquare, Plus, X, Paperclip,
+  Sparkles, Award, MessageSquare, PanelLeftClose, PanelLeftOpen, Edit2,
+  Zap, Brain, GraduationCap, Globe
 } from 'lucide-react'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../lib/sanitize'
@@ -18,14 +19,14 @@ import { TOOLS, type ToolId, type ToolCategory } from '../lib/agentTools'
 import { isDue } from '../lib/srs'
 import EmptyState from './EmptyState'
 
-/** 按多智能体与核心场景组织的快捷入口 */
+/** 智能体场景预设快捷提示词 */
 const QUICK_PROMPTS: { icon: typeof Bot; label: string; prompt: string }[] = [
-  { icon: Sparkles, label: '学术研读全套包', prompt: '生成这篇文献的学术研读全套包' },
-  { icon: Award, label: '随堂自测出题', prompt: '基于当前文档出 3 道理解题' },
-  { icon: BookOpen, label: '搜索 arXiv 论文', prompt: '搜索关于 LLM Multi-Agent 的最新论文' },
-  { icon: TerminalSquare, label: '搜索 GitHub 仓库', prompt: '搜索 vLLM 的 GitHub 仓库与开源实现' },
-  { icon: FileText, label: '总结当前文档', prompt: '总结当前文档' },
-  { icon: BadgeCheck, label: '我的学术项目', prompt: '列出我的所有学术项目及文献' }
+  { icon: GraduationCap, label: '帮我把考研高频词加入生词本', prompt: '帮我把考研高频核心词汇加入生词本并标注考点' },
+  { icon: Award, label: '六级必备词库有多少词？', prompt: '六级必备词库有多少词？帮我查一下六级高频词' },
+  { icon: Brain, label: '考研长难句语法深度拆解', prompt: '请帮我深度拆解分析一段考研英语学术长难句的主谓宾骨架与修饰从句' },
+  { icon: Globe, label: '雅思学术大作文官方评分', prompt: '请按照雅思 TR/CC/LR/GRA 官方四维度批改我的英文学术作文' },
+  { icon: Sparkles, label: '文献研读全套学习包', prompt: '为这篇论文生成学术研读全套包（摘要+术语+测验）' },
+  { icon: BookOpen, label: '检索前沿 arXiv 论文', prompt: '联网搜索关于 LLM Reasoning 深度思考的前沿 arXiv 论文' }
 ]
 
 /** 分类面板展示顺序与标题（固定，不随 TOOLS 定义漂移） */
@@ -145,6 +146,8 @@ function AgentViewInner(): React.JSX.Element {
   const stop = useAgentStore((s) => s.stop)
   const clear = useAgentStore((s) => s.clear)
   const hasAgentApi = useAgentStore((s) => s.hasAgentApi)
+  const agentMode = useAgentStore((s) => s.agentMode)
+  const setAgentMode = useAgentStore((s) => s.setAgentMode)
   const go = useAppStore((s) => s.go)
   const agentApiKey = useSettingsStore((s) => s.settings.agentApiKey)
   const dictApiKey = useSettingsStore((s) => s.settings.dictApiKey)
@@ -338,7 +341,7 @@ function AgentViewInner(): React.JSX.Element {
 
       {/* 右侧主对话区 */}
       <div className="flex h-full flex-1 flex-col min-w-0">
-        <div className="glass flex shrink-0 items-center justify-between border-b px-5 py-3">
+        <div className="glass flex shrink-0 items-center justify-between border-b px-5 py-3 bg-panel/30">
           <div className="flex items-center gap-3 min-w-0">
             <button
               className="btn btn-ghost !p-1.5 text-ink-2 hover:text-ink-1"
@@ -347,33 +350,59 @@ function AgentViewInner(): React.JSX.Element {
             >
               {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
             </button>
-            <h1 className="flex items-center gap-2 text-[16px] font-semibold truncate">
-              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent-soft text-accent shrink-0">
+            <h1 className="flex items-center gap-2 text-[15px] font-bold truncate text-ink-1">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent text-white shadow-xs shrink-0">
                 <Bot size={14} />
               </span>
               <span className="truncate">
-                {sessions.find((s) => s.id === activeSessionId)?.title || '智能体'}
-              </span>
-              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-normal text-accent shrink-0">
-                Multi-Agent
+                {sessions.find((s) => s.id === activeSessionId)?.title || '智能对话'}
               </span>
               {!hasAgentApi && (
-                <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-normal text-danger shrink-0">未配置 Key</span>
+                <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-normal text-danger shrink-0">未设 Key</span>
               )}
               {fileDoc && <span className="chip max-w-[160px] truncate">{fileDoc.name}</span>}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-3">
+            {/* ⚡ 极速 vs 🧠 深度思考 模式切换 */}
+            <div className="flex items-center bg-black/5 dark:bg-white/5 p-0.5 rounded-xl border border-line/60">
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold transition ${
+                  agentMode === 'fast'
+                    ? 'bg-accent text-white shadow-xs'
+                    : 'text-ink-3 hover:text-ink-1'
+                }`}
+                onClick={() => setAgentMode('fast')}
+                title="极速模式：快速响应、轻量直出、秒级工具调用"
+              >
+                <Zap size={12} className={agentMode === 'fast' ? 'text-amber-300' : ''} />
+                <span>极速</span>
+              </button>
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold transition ${
+                  agentMode === 'deep'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-ink-3 hover:text-ink-1'
+                }`}
+                onClick={() => setAgentMode('deep')}
+                title="深度思考模式：启用多维推理链（CoT），展示深度推导与长难句/审稿精析"
+              >
+                <Brain size={12} className={agentMode === 'deep' ? 'text-purple-200' : ''} />
+                <span>深度思考</span>
+              </button>
+            </div>
+
             <button
               className="btn btn-ghost !px-2.5 !py-1 text-[11px] text-ink-2 hover:text-ink-1 flex items-center gap-1.5 border border-line rounded-lg"
               onClick={() => {
                 clear()
                 toast('success', '已清空当前对话')
               }}
-              title="清空当前对话内容"
+              title="清空当前对话"
             >
               <Trash2 size={13} />
-              <span>清空本对话</span>
+              <span>清空</span>
             </button>
           </div>
         </div>
@@ -384,8 +413,8 @@ function AgentViewInner(): React.JSX.Element {
             <>
               <EmptyState
                 icon={Bot}
-                title="学术透镜多智能体团队已就绪"
-                hint={`我们由「文献研读专家 × 词汇记忆专家 × 学术自测导师 × 论文润色顾问」组成。\n支持一键生成研读全套包、随堂自测与答卷批改、学术术语 CEFR 分级与 SRS 闪卡排程。`}
+                title="Academic Lens 智能副驾已就绪"
+                hint={`随时为您解答学术疑难、拆解考研长难句、批改雅思作文，或直接帮您操控软件翻译、管理生词本与导出文件。\n支持「⚡ 极速」直出与「🧠 深度思考」推理双模态自由切换。`}
               />
               {!hasAgentApi && (
                 <div className="flex justify-center pt-1">
@@ -420,6 +449,23 @@ function AgentViewInner(): React.JSX.Element {
                       </span>
                     </div>
                   )}
+
+                  {/* 深度思考过程（可折叠） */}
+                  {m.thinking && (
+                    <details className="mb-3 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3 text-[12px] text-ink-2 group" open={false}>
+                      <summary className="cursor-pointer font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 flex items-center justify-between select-none">
+                        <span className="flex items-center gap-1.5 font-semibold text-[11px]">
+                          <Brain size={13} />
+                          <span>🧠 深度思考推理过程</span>
+                        </span>
+                        <span className="text-[10px] opacity-70">点击展开/折叠</span>
+                      </summary>
+                      <div className="mt-2.5 text-ink-2 text-[11px] leading-relaxed whitespace-pre-wrap font-mono border-t border-purple-500/20 pt-2 bg-black/[0.02] dark:bg-white/[0.02] p-2 rounded-lg">
+                        {m.thinking}
+                      </div>
+                    </details>
+                  )}
+
                   {m.label && (
                     <span className="mb-1 flex items-center gap-1 text-[10px] text-ink-3">
                       <Wrench size={10} className={m.role === 'tool' ? 'text-accent' : ''} />
@@ -467,14 +513,26 @@ function AgentViewInner(): React.JSX.Element {
                           key={f}
                           className="chip cursor-pointer transition hover:brightness-95"
                           onClick={() => {
-                            // 特殊续做：跨视图动作直接执行（打开测验弹窗 / 跳润色页），其余交给智能体
+                            // 特殊续做：跨视图动作直接精准直达，其余交给智能体决策
                             if (f === '去阅读页做完整测验') {
                               useFileStore.getState().openQuiz()
-                              go('home')
+                              go('bilingual')
                               return
                             }
-                            if (f === '去润色页继续编辑') {
+                            if (f === '去润色页继续编辑' || f === '去学术润色继续编辑') {
                               go('polish')
+                              return
+                            }
+                            if (f === '去来做学术工作台精读' || f === '回到文献阅读') {
+                              go('bilingual')
+                              return
+                            }
+                            if (f === '去来做学术工作台查看') {
+                              go('research')
+                              return
+                            }
+                            if (f === '去句型库查看' || f === '查找相关的引言句型' || f === '查找结果讨论句型') {
+                              go('phrasebank')
                               return
                             }
                             send(f)
