@@ -244,20 +244,20 @@ function resolveQuickAction(
   }
 
   // 人文社科与文学翻译类
-  if (/(?:文学翻译|文学精翻|信达雅翻译|翻译成散文|诗歌翻译|小说翻译)\s*[:：]?\s*(.*)/i.test(cl)) {
-    const text = cl.replace(/^.*?(?:文学翻译|文学精翻|信达雅翻译|翻译成散文|诗歌翻译|小说翻译)\s*[:：]?\s*/i, '').trim()
+  if (/(?:文学翻译|文学精翻|信达雅翻译|翻译成散文|诗歌翻译|小说翻译)\s*[:：?？]?\s*(.*)/i.test(cl)) {
+    const text = cl.replace(/^.*?(?:文学翻译|文学精翻|信达雅翻译|翻译成散文|诗歌翻译|小说翻译)\s*[:：?？]?\s*/i, '').trim()
     return { tool: 'literary_translate', params: { text } }
   }
-  if (/(?:文本细读|修辞分析|文学赏析|隐喻分析|象征手法|修辞艺术)\s*[:：]?\s*(.*)/i.test(cl)) {
-    const text = cl.replace(/^.*?(?:文本细读|修辞分析|文学赏析|隐喻分析|象征手法|修辞艺术)\s*[:：]?\s*/i, '').trim()
+  if (/(?:文本细读|修辞分析|文学赏析|隐喻分析|象征手法|修辞艺术)\s*[:：?？]?\s*(.*)/i.test(cl)) {
+    const text = cl.replace(/^.*?(?:文本细读|修辞分析|文学赏析|隐喻分析|象征手法|修辞艺术)\s*[:：?？]?\s*/i, '').trim()
     return { tool: 'literary_rhetoric_analyze', params: { text } }
   }
-  if (/(?:哲学思辨|人文批判|思想谱系|批判性书评|哲学辨析)\s*[:：]?\s*(.*)/i.test(cl)) {
-    const text = cl.replace(/^.*?(?:哲学思辨|人文批判|思想谱系|批判性书评|哲学辨析)\s*[:：]?\s*/i, '').trim()
+  if (/(?:哲学思辨|人文批判|思想谱系|批判性书评|哲学辨析)\s*[:：?？]?\s*(.*)/i.test(cl)) {
+    const text = cl.replace(/^.*?(?:哲学思辨|人文批判|思想谱系|批判性书评|哲学辨析)\s*[:：?？]?\s*/i, '').trim()
     return { tool: 'humanities_critique', params: { text } }
   }
-  if (/(?:典故溯源|考据典故|名句出处|神话隐喻|追溯典故)\s*[:：]?\s*(.*)/i.test(cl)) {
-    const query = cl.replace(/^.*?(?:典故溯源|考据典故|名句出处|神话隐喻|追溯典故)\s*[:：]?\s*/i, '').trim()
+  if (/(?:典故溯源|考据典故|考据一下典故|名句出处|神话隐喻|追溯典故|考据)\s*[:：?？]?\s*(.*)/i.test(cl)) {
+    const query = cl.replace(/^.*?(?:典故溯源|考据典故|考据一下典故|名句出处|神话隐喻|追溯典故|考据)\s*[:：?？]?\s*/i, '').trim()
     if (query) return { tool: 'classic_allusion_lookup', params: { query } }
   }
 

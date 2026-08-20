@@ -113,24 +113,35 @@ export async function planDailySchedule(userInput?: string): Promise<string> {
  * 4. 学术解压幽默与科学家轶事 (Scholar Humor & Wisdom)
  * 缓解科研压力，分享学术幽默、历史趣闻或哲思箴言
  */
+/**
+ * 4. 学术解压幽默与科学家轶事 (Scholar Humor & Wisdom)
+ * 缓解科研压力，分享真实的学术梗、科学史名家趣味轶事与治愈哲思
+ */
 export async function getScholarHumorOrWisdom(type?: string): Promise<string> {
   const typeHint = type ? `用户关注点：${type}` : '通用解压'
   const prompt =
-    `你是博学风趣的学术管家。\n` +
-    `用户现在可能正在经历烧脑的科研或英语学习，需要放松解压或汲取智慧（${typeHint}）。\n` +
-    `请为用户分享：\n` +
-    `1. 😄 **一个高水平的学术/科研幽默梗**（如关于 LaTeX 排版玄学、审稿人二号、Overleaf 崩溃或跑实验玄学）；\n` +
-    `2. 📜 **一段世界著名学者/科学家的真实趣味轶事**（如费曼、图灵、爱因斯坦、哥德尔的趣事）；\n` +
-    `3. 🌟 **一句触动人心的学术哲思与治愈寄语**。\n\n` +
-    `语气要既有学者的博雅，又有管家的幽默与温度！`
+    `你是学术界资深学者与博学管家。\n` +
+    `用户目前可能在学术研读或英语学习中感到疲惫，需要放松与灵感注入（${typeHint}）。\n\n` +
+    `【质量硬性准则——绝不允许编造虚假、生硬、低幼的假笑话】：\n` +
+    `1. ☕ **真实学术/科研梗（严谨且让学者会心一笑）**：\n` +
+    `   - 必须取材于真实的科研日常痛点（例如：LaTeX 排版图片总乱跑并飞到下一页、Overleaf 编译超时、审稿人二号经典要求、P值 0.051 的玄学绝望、深度学习调参梯度消失）。\n` +
+    `2. 📜 **真实科学史名家趣味轶事（真实历史事实）**：\n` +
+    `   - 必须讲述真实历史中大科学家的经典真事（例如：费曼在曼哈顿工程期间破解保险箱留纸条戏弄安保；物理学家狄拉克惜字如金，同事甚至定义了「1 狄拉克 = 每小时说 1 个词」；数学大师埃尔德什居无定所、提着破箱子巡游全球数学家客厅，称上帝有一本记录最美证明的《天书》；冯·诺依曼惊人的心算速度碾压机械计算机；哥德尔在入籍美国面试时试图向法官证明美国宪法存在逻辑漏洞；维纳教授忘家；图灵用自行车链条周期来计算掉链时间）。\n` +
+    `3. 🌟 **一句触动灵魂的学术哲思与治愈寄语**：\n` +
+    `   - 结合人类对未知的永恒探索，给出优雅、深刻、富有力量的学术管家寄语。\n\n` +
+    `请用文采斐然、博雅且风趣的 Markdown 格式输出。`
 
   const messages: LLMMessage[] = [
-    { role: 'system', content: 'You are a witty, cultured, and charming academic butler.' },
+    {
+      role: 'system',
+      content:
+        'You are an erudite academic butler and historian of science. You only share authentic, well-documented historical anecdotes of famous scientists and genuine academic humor. Never invent fake or cringeworthy jokes.'
+    },
     { role: 'user', content: prompt }
   ]
 
   try {
-    const res = await agentComplete(messages, { temperature: 0.8, maxTokens: 1000 }).promise
+    const res = await agentComplete(messages, { temperature: 0.7, maxTokens: 1200 }).promise
     return res.trim()
   } catch (e) {
     return `内容获取失败：${e instanceof Error ? e.message : String(e)}`

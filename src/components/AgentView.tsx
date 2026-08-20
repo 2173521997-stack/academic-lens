@@ -1,6 +1,6 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  Bot, Send, Square, Trash2, Wrench, ShieldCheck, AlertTriangle,
+  Bot, Send, Square, Trash2, Wrench, AlertTriangle,
   BookOpen, FileText, BadgeCheck, Settings, TerminalSquare, Plus, X, Paperclip,
   Sparkles, Award
 } from 'lucide-react'
@@ -251,11 +251,16 @@ function AgentViewInner(): React.JSX.Element {
           {fileDoc && <span className="chip max-w-[200px] truncate">{fileDoc.name}</span>}
         </h1>
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 text-[10px] text-ink-3" title="4 大专精子智能体：研读 · 词汇 · 导师 · 润色">
-            <ShieldCheck size={11} className="text-ok" /> 4 专精子智能体
-          </span>
-          <button className="btn btn-ghost !p-1.5" onClick={clear} disabled={!messages.length} title="清空对话">
-            <Trash2 size={13} />
+          <button
+            className="btn btn-ghost !px-2.5 !py-1 text-[11px] text-ink-2 hover:text-ink-1 flex items-center gap-1.5 border border-line rounded-lg"
+            onClick={() => {
+              clear()
+              toast('success', '已开启新对话，上下文已清空')
+            }}
+            title="清空当前对话上下文，开启全新对话"
+          >
+            <Plus size={13} />
+            <span>新建对话</span>
           </button>
         </div>
       </div>
