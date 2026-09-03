@@ -1,0 +1,54 @@
+name: Build Installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Type-check & build renderer
+        run: npm run build
+
+      - name: Package (Windows NSIS)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win nsis
+
+      - name: Package (macOS DMG)
+        if: runner.os == 'macOS'
+        run: npx electron-builder --mac
+
+      - name: Package (Linux AppImage)
+        if: runner.os == 'Linux'
+        run: npx electron-builder --linux AppImage
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: academic-lens-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+          if-no-files-found: error
